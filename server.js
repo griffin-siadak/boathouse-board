@@ -23,7 +23,9 @@ db.exec(`
     notes           TEXT DEFAULT '',
     retired         INTEGER DEFAULT 0,
     hw_refresh_date TEXT,
-    last_wax_date   TEXT
+    last_full_wash_date TEXT,
+    last_inspection_date TEXT,
+    last_measurement_check_date TEXT
   );
   CREATE TABLE IF NOT EXISTS checkouts (
     id      TEXT PRIMARY KEY,
@@ -50,13 +52,24 @@ function ensureColumn(table, col, ddl) {
   if (!cols.includes(col)) db.exec("ALTER TABLE " + table + " ADD COLUMN " + ddl);
 }
 ensureColumn("fleet", "hw_refresh_date", "hw_refresh_date TEXT");
-ensureColumn("fleet", "last_wax_date", "last_wax_date TEXT");
+// 2026-07: "last wax" became "last full wash" — rename preserves existing data
+{
+  const cols = db.prepare("PRAGMA table_info(fleet)").all().map(r => r.name);
+  if (cols.includes("last_wax_date") && !cols.includes("last_full_wash_date"))
+    db.exec("ALTER TABLE fleet RENAME COLUMN last_wax_date TO last_full_wash_date");
+}
+ensureColumn("fleet", "last_full_wash_date", "last_full_wash_date TEXT");
+ensureColumn("fleet", "last_inspection_date", "last_inspection_date TEXT");
+ensureColumn("fleet", "last_measurement_check_date", "last_measurement_check_date TEXT");
 
 // ---------- state <-> tables ----------
 function getState() {
   const fleet = db.prepare("SELECT * FROM fleet").all().map(r => ({
     id: r.id, name: r.name, cls: r.cls, notes: r.notes, retired: !!r.retired,
-    hwRefreshDate: r.hw_refresh_date || "", lastWaxDate: r.last_wax_date || ""
+    hwRefreshDate: r.hw_refresh_date || "",
+    lastFullWashDate: r.last_full_wash_date || "",
+    lastInspectionDate: r.last_inspection_date || "",
+    lastMeasurementCheckDate: r.last_measurement_check_date || ""
   }));
   const checkouts = db.prepare("SELECT * FROM checkouts ORDER BY out_at").all().map(r => ({
     id: r.id, boatId: r.boat_id, outAt: r.out_at, inAt: r.in_at, note: r.note
@@ -78,7 +91,7 @@ function putState(state) {
   const maintenance = Array.isArray(state.maintenance) ? state.maintenance : [];
 
   const insFleet = db.prepare(
-    "INSERT INTO fleet (id, name, cls, notes, retired, hw_refresh_date, last_wax_date) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    "INSERT INTO fleet (id, name, cls, notes, retired, hw_refresh_date, last_full_wash_date, last_inspection_date, last_measurement_check_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const insCheckout = db.prepare(
     "INSERT INTO checkouts (id, boat_id, out_at, in_at, note) VALUES (?, ?, ?, ?, ?)");
   const insMaint = db.prepare(
@@ -89,7 +102,8 @@ function putState(state) {
     db.exec("DELETE FROM fleet; DELETE FROM checkouts; DELETE FROM maintenance;");
     for (const b of fleet)
       insFleet.run(b.id, b.name, b.cls || "", b.notes || "", b.retired ? 1 : 0,
-        b.hwRefreshDate || null, b.lastWaxDate || null);
+        b.hwRefreshDate || null, b.lastFullWashDate || null,
+        b.lastInspectionDate || null, b.lastMeasurementCheckDate || null);
     for (const c of checkouts)
       insCheckout.run(c.id, c.boatId, c.outAt, c.inAt || null, c.note || "");
     for (const m of maintenance)

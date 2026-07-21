@@ -346,8 +346,10 @@ if(!window.storage){
   // Maintenance checkpoints: add future time/usage-based measures here and
   // the placard + adjustment sheet pick them up automatically.
   var CHECKPOINTS = [
-    { key: "hwRefreshDate", label: "Hardware refresh" },
-    { key: "lastWaxDate",   label: "Last wax" }
+    { key: "hwRefreshDate",            label: "Hardware refresh" },
+    { key: "lastFullWashDate",         label: "Last full wash" },
+    { key: "lastInspectionDate",       label: "Last inspection" },
+    { key: "lastMeasurementCheckDate", label: "Last measurement check" }
   ];
 
   // ---------------- utils ----------------
@@ -908,10 +910,9 @@ if(!window.storage){
       if(!name){ toast("Give the boat a name"); return; }
       var cls = document.getElementById("nb-cls").value.trim();
       var notes = document.getElementById("nb-notes").value.trim();
-      state.fleet.push({
-        id: uid(), name: name, cls: cls, notes: notes, retired: false,
-        hwRefreshDate: "", lastWaxDate: ""
-      });
+      var newBoat = { id: uid(), name: name, cls: cls, notes: notes, retired: false };
+      CHECKPOINTS.forEach(function(cp){ newBoat[cp.key] = ""; });
+      state.fleet.push(newBoat);
       saveState();
       document.getElementById("nb-name").value = "";
       document.getElementById("nb-cls").value = "";
