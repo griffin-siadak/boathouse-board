@@ -28,11 +28,13 @@ db.exec(`
     last_measurement_check_date TEXT
   );
   CREATE TABLE IF NOT EXISTS checkouts (
-    id      TEXT PRIMARY KEY,
-    boat_id TEXT NOT NULL,
-    out_at  TEXT NOT NULL,
-    in_at   TEXT,
-    note    TEXT DEFAULT ''
+    id          TEXT PRIMARY KEY,
+    boat_id     TEXT NOT NULL,
+    out_at      TEXT NOT NULL,
+    in_at       TEXT,
+    note        TEXT DEFAULT '',
+    person      TEXT DEFAULT '',
+    person_role TEXT DEFAULT ''
   );
   CREATE TABLE IF NOT EXISTS maintenance (
     id          TEXT PRIMARY KEY,
@@ -61,6 +63,8 @@ ensureColumn("fleet", "hw_refresh_date", "hw_refresh_date TEXT");
 ensureColumn("fleet", "last_full_wash_date", "last_full_wash_date TEXT");
 ensureColumn("fleet", "last_inspection_date", "last_inspection_date TEXT");
 ensureColumn("fleet", "last_measurement_check_date", "last_measurement_check_date TEXT");
+ensureColumn("checkouts", "person", "person TEXT DEFAULT ''");
+ensureColumn("checkouts", "person_role", "person_role TEXT DEFAULT ''");
 
 // ---------- state <-> tables ----------
 function getState() {
@@ -72,7 +76,8 @@ function getState() {
     lastMeasurementCheckDate: r.last_measurement_check_date || ""
   }));
   const checkouts = db.prepare("SELECT * FROM checkouts ORDER BY out_at").all().map(r => ({
-    id: r.id, boatId: r.boat_id, outAt: r.out_at, inAt: r.in_at, note: r.note
+    id: r.id, boatId: r.boat_id, outAt: r.out_at, inAt: r.in_at, note: r.note,
+    person: r.person || "", personRole: r.person_role || ""
   }));
   const maintenance = db.prepare("SELECT * FROM maintenance ORDER BY date").all().map(r => {
     const m = {
@@ -93,7 +98,7 @@ function putState(state) {
   const insFleet = db.prepare(
     "INSERT INTO fleet (id, name, cls, notes, retired, hw_refresh_date, last_full_wash_date, last_inspection_date, last_measurement_check_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const insCheckout = db.prepare(
-    "INSERT INTO checkouts (id, boat_id, out_at, in_at, note) VALUES (?, ?, ?, ?, ?)");
+    "INSERT INTO checkouts (id, boat_id, out_at, in_at, note, person, person_role) VALUES (?, ?, ?, ?, ?, ?, ?)");
   const insMaint = db.prepare(
     "INSERT INTO maintenance (id, boat_id, date, description, severity, resolved, resolved_at, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 
@@ -105,7 +110,8 @@ function putState(state) {
         b.hwRefreshDate || null, b.lastFullWashDate || null,
         b.lastInspectionDate || null, b.lastMeasurementCheckDate || null);
     for (const c of checkouts)
-      insCheckout.run(c.id, c.boatId, c.outAt, c.inAt || null, c.note || "");
+      insCheckout.run(c.id, c.boatId, c.outAt, c.inAt || null, c.note || "",
+        c.person || "", c.personRole || "");
     for (const m of maintenance)
       insMaint.run(m.id, m.boatId, m.date, m.description, m.severity || "minor",
         m.resolved ? 1 : 0, m.resolvedAt || null, m.source || "manual");

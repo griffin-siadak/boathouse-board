@@ -463,6 +463,13 @@ if(!window.storage){
     for(var i=0;i<state.fleet.length;i++) if(state.fleet[i].id===id) return state.fleet[i];
     return null;
   }
+  // Coxed classes carry a "+" (8+, 4+, 4x+, 2+); 1x is a lone rower; the rest go by bow seat
+  function crewRoleFor(cls){
+    var c = (cls||"").trim().toLowerCase();
+    if(c.indexOf("+") !== -1) return { key:"cox",   label:"Coxswain" };
+    if(c.indexOf("1x") === 0) return { key:"rower", label:"Rower" };
+    return { key:"bow", label:"Bow seat" };
+  }
 
   // ---------------- render dispatch ----------------
   function renderCurrentTab(){
@@ -557,10 +564,15 @@ if(!window.storage){
   }
 
   function renderCheckOutSheet(b){
+    var role = crewRoleFor(b.cls);
     openOverlay(
       '<div class="eyebrow">'+escapeHtml(b.cls||"")+'</div>' +
       '<h2>Send '+escapeHtml(b.name)+' out?</h2>' +
       '<p class="sub">Logs it on the board so the next coach knows it\'s on the water.</p>' +
+      '<div class="field">' +
+        '<label for="co-person">'+role.label+'</label>' +
+        '<input type="text" id="co-person" placeholder="Name" autocomplete="off" />' +
+      '</div>' +
       '<button class="field-toggle-link" id="toggle-note">+ Add a crew note (optional)</button>' +
       '<div class="field" id="note-field" style="display:none; margin-top:10px;">' +
         '<label for="co-note">Crew / notes</label>' +
@@ -576,7 +588,9 @@ if(!window.storage){
     document.getElementById("cancel-sheet").onclick = closeOverlay;
     document.getElementById("confirm-checkout").onclick = function(){
       var note = document.getElementById("co-note").value.trim();
-      state.checkouts.push({ id: uid(), boatId: b.id, outAt: nowIso(), inAt: null, note: note });
+      var person = document.getElementById("co-person").value.trim();
+      state.checkouts.push({ id: uid(), boatId: b.id, outAt: nowIso(), inAt: null, note: note,
+        person: person, personRole: person ? role.key : "" });
       closeOverlay();
       saveState();
       renderCurrentTab();
@@ -589,7 +603,11 @@ if(!window.storage){
     openOverlay(
       '<div class="eyebrow">'+escapeHtml(b.cls||"")+' · out '+elapsed+'</div>' +
       '<h2>Check in '+escapeHtml(b.name)+'?</h2>' +
-      '<p class="sub">'+(session.note ? "Note: "+escapeHtml(session.note) : "Went out at "+fmtClockShort(new Date(session.outAt)))+'</p>' +
+      '<p class="sub">'+
+        (session.person ? ({cox:"Cox",bow:"Bow",rower:"Rower"}[session.personRole]||"With")+": "+escapeHtml(session.person)+" · " : "") +
+        "Went out at "+fmtClockShort(new Date(session.outAt)) +
+        (session.note ? " · "+escapeHtml(session.note) : "") +
+      '</p>' +
       '<button class="btn primary-in" id="confirm-checkin-clean">No issues — Check In</button>' +
       '<button class="btn ghost" id="show-issue-form">Report an issue</button>' +
       '<div id="issue-form" style="display:none; margin-top:16px;">' +
