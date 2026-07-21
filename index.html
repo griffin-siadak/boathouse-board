@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Boathouse Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink: #0D1B22;
+    --panel: #142831;
+    --panel-raised: #1C333D;
+    --panel-raised-2: #22404C;
+    --hairline: rgba(237,244,242,0.09);
+    --foam: #EDF4F2;
+    --slate: #8FADB3;
+    --slate-dim: #5E7A80;
+    --buoy: #4FBF8B;
+    --buoy-dim: rgba(79,191,139,0.16);
+    --flag: #E1A94C;
+    --flag-dim: rgba(225,169,76,0.16);
+    --signal: #E2604F;
+    --signal-dim: rgba(226,96,79,0.16);
+    --radius: 14px;
+    --radius-sm: 9px;
+    --shadow: 0 10px 30px rgba(0,0,0,0.35);
+  }
+  *{ box-sizing: border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background: radial-gradient(1200px 800px at 80% -10%, #10222B 0%, var(--ink) 55%);
+    color: var(--foam);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x:hidden;
+  }
+  ::selection{ background: var(--buoy-dim); }
+  button{ font-family: inherit; }
+  .display{ font-family: 'Big Shoulders Display', sans-serif; }
+  .mono{ font-family: 'IBM Plex Mono', monospace; }
+
+  /* ---------- layout shell ---------- */
+  #app{ max-width: 1180px; margin: 0 auto; padding: 22px 22px 60px; }
+
+  .board-header{
+    display:flex; align-items:flex-start; justify-content:space-between;
+    padding-bottom: 18px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .header-left .eyebrow{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:.14em;
+    color: var(--slate); text-transform:uppercase;
+  }
+  .header-left h1{
+    font-family:'Big Shoulders Display', sans-serif; font-weight:800;
+    font-size: 40px; line-height:1; margin:4px 0 0; letter-spacing:.01em;
+  }
+  .header-right{ text-align:right; }
+  .header-right .clock{
+    font-family:'IBM Plex Mono', monospace; font-size:26px; font-weight:600; color:var(--foam);
+  }
+  .header-right .date{ font-size:12px; color:var(--slate); margin-top:2px; }
+  .sync-pill{
+    display:inline-flex; align-items:center; gap:6px; margin-top:10px;
+    font-size:11px; color:var(--slate); font-family:'IBM Plex Mono', monospace;
+  }
+  .sync-dot{ width:6px; height:6px; border-radius:50%; background:var(--buoy); }
+  .sync-dot.saving{ background:var(--flag); }
+  .sync-dot.err{ background:var(--signal); }
+
+  .gear-btn{
+    width:40px; height:40px; border-radius:50%; border:1px solid var(--hairline);
+    background:var(--panel); color:var(--slate); cursor:pointer; margin-top:6px;
+    display:flex; align-items:center; justify-content:center; transition: color .15s, border-color .15s;
+  }
+  .gear-btn:hover{ color:var(--foam); border-color:var(--slate-dim); }
+
+  .tabs{ display:flex; gap:6px; margin-bottom:22px; }
+  .tab-btn{
+    background:transparent; border:1px solid var(--hairline); color:var(--slate);
+    padding:9px 18px; border-radius: 999px; cursor:pointer; font-size:14px; font-weight:600;
+    letter-spacing:.02em; transition: all .15s;
+  }
+  .tab-btn:hover{ color:var(--foam); border-color: var(--slate-dim); }
+  .tab-btn.active{ background:var(--foam); color:var(--ink); border-color:var(--foam); }
+
+  .view{ display:none; }
+  .view.active{ display:block; }
+
+  /* ---------- empty states ---------- */
+  .empty{
+    border:1px dashed var(--hairline); border-radius: var(--radius);
+    padding: 46px 24px; text-align:center; color:var(--slate);
+  }
+  .empty h3{ color:var(--foam); font-family:'Big Shoulders Display'; font-size:26px; margin:0 0 6px; font-weight:700; }
+  .empty p{ margin:0 0 18px; font-size:14px; }
+
+  /* ---------- dock grid ---------- */
+  .dock-grid{
+    display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:14px;
+  }
+  .boat-card{
+    background: var(--panel); border:1px solid var(--hairline); border-radius: var(--radius);
+    padding:16px; cursor:pointer; position:relative; text-align:left;
+    transition: transform .12s ease, border-color .12s ease, background .12s ease;
+  }
+  .boat-card:hover{ transform: translateY(-2px); border-color: var(--slate-dim); background: var(--panel-raised); }
+  .boat-card:active{ transform: translateY(0); }
+  .boat-card .flagged-badge{
+    position:absolute; top:12px; right:12px; background:var(--signal-dim); color:var(--signal);
+    font-size:10px; font-weight:700; letter-spacing:.08em; padding:3px 7px; border-radius:6px;
+  }
+  .boat-card .cls{
+    font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:.1em; color:var(--slate); text-transform:uppercase;
+  }
+  .boat-card h3{
+    font-family:'Big Shoulders Display'; font-weight:800; font-size:26px; line-height:1.05;
+    margin:4px 0 12px; padding-right: 54px;
+  }
+  .status-row{ display:flex; align-items:center; gap:8px; }
+  .status-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .status-dot.available{ background:var(--buoy); }
+  .status-dot.out{ background:var(--flag); }
+  .status-label{ font-size:13px; font-weight:600; }
+  .status-label.available{ color:var(--buoy); }
+  .status-label.out{ color:var(--flag); }
+  .status-sub{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--slate); margin-left:auto; }
+
+  .waterline{ height:3px; border-radius:3px; background:var(--hairline); margin-top:12px; overflow:hidden; }
+  .waterline .fill{ height:100%; background:var(--flag); width:0%; transition: width 1s linear; }
+
+  /* ---------- sheet / modal ---------- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(6,13,17,0.6); backdrop-filter: blur(2px);
+    display:none; align-items:flex-end; justify-content:center; z-index:50; padding: 0;
+  }
+  .overlay.open{ display:flex; }
+  @media (min-width: 720px){
+    .overlay{ align-items:center; }
+  }
+  .sheet{
+    background: var(--panel-raised); width:100%; max-width:480px; border-radius: 20px 20px 0 0;
+    padding:24px 22px 26px; box-shadow: var(--shadow); border:1px solid var(--hairline); border-bottom:none;
+    max-height: 88vh; overflow-y:auto;
+  }
+  @media (min-width: 720px){
+    .sheet{ border-radius: 20px; border-bottom:1px solid var(--hairline); }
+  }
+  .sheet .eyebrow{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--slate); text-transform:uppercase; letter-spacing:.1em; }
+  .sheet h2{ font-family:'Big Shoulders Display'; font-size:30px; font-weight:800; margin:4px 0 4px; }
+  .sheet .sub{ color:var(--slate); font-size:14px; margin: 0 0 18px; }
+
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:12px; color:var(--slate); margin-bottom:6px; font-weight:600; letter-spacing:.02em; }
+  .field input[type=text], .field textarea, .field select{
+    width:100%; background:var(--ink); border:1px solid var(--hairline); color:var(--foam);
+    border-radius: var(--radius-sm); padding:12px 12px; font-size:15px; font-family:inherit; resize:vertical;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus{ outline:2px solid var(--slate-dim); outline-offset:1px; }
+  .field-toggle-link{ background:none; border:none; color:var(--slate); font-size:13px; cursor:pointer; padding:4px 0; text-decoration:underline; text-underline-offset:3px; }
+  .field-toggle-link:hover{ color:var(--foam); }
+
+  .seg{ display:flex; gap:8px; }
+  .seg button{
+    flex:1; padding:11px 8px; border-radius: var(--radius-sm); border:1px solid var(--hairline);
+    background:var(--ink); color:var(--slate); cursor:pointer; font-size:13px; font-weight:600;
+  }
+  .seg button.active{ border-color: var(--signal); color: var(--signal); background: var(--signal-dim); }
+
+  .btn{
+    width:100%; border:none; border-radius: var(--radius-sm); padding:16px; font-size:16px;
+    font-weight:700; cursor:pointer; margin-top:6px; transition: filter .12s, transform .05s;
+  }
+  .btn:active{ transform: scale(0.98); }
+  .btn.primary-out{ background:var(--flag); color:#241703; }
+  .btn.primary-in{ background:var(--buoy); color:#052014; }
+  .btn.primary-danger{ background:var(--signal); color:#2A0A05; }
+  .btn.ghost{ background:transparent; border:1px solid var(--hairline); color:var(--slate); }
+  .btn.ghost:hover{ color:var(--foam); border-color: var(--slate-dim); }
+  .btn:hover{ filter:brightness(1.06); }
+  .btn-row{ display:flex; gap:10px; margin-top:6px; }
+  .btn-row .btn{ margin-top:0; }
+
+  .divider-text{ text-align:center; color:var(--slate-dim); font-size:11px; letter-spacing:.1em; text-transform:uppercase; margin: 18px 0 12px; }
+
+  /* ---------- maintenance ---------- */
+  .m-section-title{ font-family:'Big Shoulders Display'; font-size:20px; font-weight:700; margin: 26px 0 10px; color:var(--slate); text-transform:uppercase; letter-spacing:.03em; }
+  .m-section-title:first-child{ margin-top:0; }
+  .m-row{
+    display:flex; align-items:flex-start; gap:14px; padding:14px 16px; background:var(--panel);
+    border:1px solid var(--hairline); border-radius: var(--radius-sm); margin-bottom:8px;
+  }
+  .m-row .m-dot{ width:9px; height:9px; border-radius:50%; margin-top:6px; flex:none; }
+  .m-row .m-dot.open{ background:var(--signal); }
+  .m-row .m-dot.resolved{ background:var(--buoy-dim); border:1px solid var(--buoy); }
+  .m-row .m-body{ flex:1; }
+  .m-row .m-boat{ font-weight:700; font-size:14px; }
+  .m-row .m-desc{ font-size:14px; color:var(--foam); margin-top:2px; }
+  .m-row .m-meta{ font-size:11px; color:var(--slate); margin-top:6px; font-family:'IBM Plex Mono'; }
+  .m-row .m-action{ flex:none; }
+  .m-btn-small{
+    background:transparent; border:1px solid var(--hairline); color:var(--slate); border-radius:8px;
+    padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer;
+  }
+  .m-btn-small:hover{ color:var(--foam); border-color:var(--slate-dim); }
+  .collapse-toggle{ background:none; border:none; color:var(--slate); font-size:12px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; margin-bottom:8px; }
+
+  .fab{
+    position:fixed; bottom:26px; right:26px; width:56px; height:56px; border-radius:50%;
+    background:var(--foam); color:var(--ink); border:none; font-size:28px; cursor:pointer;
+    box-shadow: var(--shadow); z-index:30; line-height:0;
+  }
+  .fab:hover{ filter:brightness(0.95); }
+
+  /* ---------- usage ---------- */
+  .range-seg{ display:inline-flex; gap:6px; margin-bottom:20px; }
+  .range-seg button{
+    background:transparent; border:1px solid var(--hairline); color:var(--slate); padding:8px 14px;
+    border-radius:999px; font-size:13px; cursor:pointer; font-weight:600;
+  }
+  .range-seg button.active{ background:var(--foam); color:var(--ink); border-color:var(--foam); }
+
+  .stat-strip{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; margin-bottom:24px; }
+  .stat-box{ background:var(--panel); border:1px solid var(--hairline); border-radius: var(--radius-sm); padding:16px; }
+  .stat-box .num{ font-family:'Big Shoulders Display'; font-size:32px; font-weight:800; }
+  .stat-box .lbl{ font-size:11px; color:var(--slate); text-transform:uppercase; letter-spacing:.06em; margin-top:2px; }
+
+  .bar-row{ margin-bottom:14px; }
+  .bar-row .bar-top{ display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px; }
+  .bar-row .bar-top .bname{ font-weight:700; }
+  .bar-row .bar-top .bval{ font-family:'IBM Plex Mono'; color:var(--slate); }
+  .bar-track{ height:10px; background:var(--panel); border-radius:6px; overflow:hidden; border:1px solid var(--hairline); }
+  .bar-fill{ height:100%; background: linear-gradient(90deg, var(--buoy), var(--flag)); border-radius:6px; transition: width .4s ease; }
+
+  /* ---------- manage fleet ---------- */
+  .fleet-row{ display:flex; align-items:center; gap:12px; padding:12px 14px; background:var(--panel); border:1px solid var(--hairline); border-radius:var(--radius-sm); margin-bottom:8px; }
+  .fleet-row .fname{ font-weight:700; flex:1; }
+  .fleet-row .fcls{ font-size:12px; color:var(--slate); font-family:'IBM Plex Mono'; }
+
+  /* ---------- toast ---------- */
+  #toast-container{ position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:100; display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .toast{
+    background:var(--foam); color:var(--ink); padding:12px 20px; border-radius:999px; font-size:14px; font-weight:600;
+    box-shadow: var(--shadow); animation: toast-in .18s ease-out;
+  }
+  @keyframes toast-in{ from{ opacity:0; transform:translateY(-8px);} to{ opacity:1; transform:translateY(0);} }
+
+  a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible{
+    outline:2px solid var(--foam); outline-offset:2px;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  @media (max-width: 520px){
+    .header-left h1{ font-size:30px; }
+    .header-right .clock{ font-size:20px; }
+    #app{ padding:16px 14px 60px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="board-header">
+    <div class="header-left">
+      <div class="eyebrow">WWU Men's Rowing</div>
+      <h1>Boathouse Board</h1>
+      <div class="sync-pill"><span class="sync-dot" id="sync-dot"></span><span id="sync-label">Synced</span></div>
+    </div>
+    <div class="header-right">
+      <div class="clock" id="clock">--:--</div>
+      <div class="date" id="date-line">-</div>
+      <button class="gear-btn" id="gear-btn" title="Manage fleet" aria-label="Manage fleet">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 13a7.97 7.97 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a8 8 0 0 0-1.7-1L15 3h-4l-.3 2.9a8 8 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a8 8 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a8 8 0 0 0 1.7 1L11 21h4l.3-2.9a8 8 0 0 0 1.7-1l2.5 1 2-3.5L19.4 13Z" stroke="currentColor" stroke-width="1.4"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab-btn active" data-tab="dock">Dock</button>
+    <button class="tab-btn" data-tab="maintenance">Maintenance</button>
+    <button class="tab-btn" data-tab="usage">Usage</button>
+  </div>
+
+  <section class="view active" id="view-dock">
+    <div id="dock-content"></div>
+  </section>
+
+  <section class="view" id="view-maintenance">
+    <div id="maintenance-content"></div>
+  </section>
+
+  <section class="view" id="view-usage">
+    <div id="usage-content"></div>
+  </section>
+
+</div>
+
+<button class="fab" id="fleet-fab" title="Add a boat" aria-label="Add a boat" style="display:none;">+</button>
+
+<div class="overlay" id="overlay">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// Local fallback: emulate the hosted window.storage API with localStorage
+if(!window.storage){
+  window.storage = {
+    get: async function(key){ var v = localStorage.getItem(key); return v==null ? null : { value: v }; },
+    set: async function(key, value){ localStorage.setItem(key, value); return { ok: true }; }
+  };
+}
+(function(){
+  "use strict";
+
+
+  var STORAGE_KEY = "wwu-boathouse-v1";
+  var state = { fleet: [], checkouts: [], maintenance: [] };
+  var currentTab = "dock";
+  var modalOpen = false;
+  var manageFleetMode = false;
+  var maintHistoryOpen = false;
+  var usageRange = "7d"; // 7d, 30d, all
+
+  // ---------------- utils ----------------
+  function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+  function nowIso(){ return new Date().toISOString(); }
+  function fmtClock(d){
+    var h = d.getHours(), m = d.getMinutes();
+    var ap = h >= 12 ? "PM" : "AM";
+    h = h % 12; if(h===0) h = 12;
+    return h + ":" + (m<10?"0":"")+m + " " + ap;
+  }
+  function fmtDateLine(d){
+    return d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' });
+  }
+  function fmtClockShort(d){
+    var h = d.getHours(), m = d.getMinutes();
+    var ap = h >= 12 ? "pm" : "am";
+    h = h % 12; if(h===0) h = 12;
+    return h + ":" + (m<10?"0":"")+m + ap;
+  }
+  function fmtDuration(ms){
+    var mins = Math.max(0, Math.round(ms/60000));
+    var h = Math.floor(mins/60), m = mins % 60;
+    if(h > 0) return h + "h " + m + "m";
+    return m + "m";
+  }
+  function escapeHtml(s){
+    return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function toast(msg){
+    var c = document.getElementById("toast-container");
+    var t = document.createElement("div");
+    t.className = "toast"; t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(function(){ t.remove(); }, 2600);
+  }
+
+  // ---------------- storage ----------------
+  function setSyncStatus(mode){
+    var dot = document.getElementById("sync-dot");
+    var lbl = document.getElementById("sync-label");
+    dot.className = "sync-dot" + (mode==="saving" ? " saving" : mode==="err" ? " err" : "");
+    lbl.textContent = mode==="saving" ? "Saving…" : mode==="err" ? "Offline — retrying" : "Synced";
+  }
+
+  async function loadState(){
+    try{
+      var res = await window.storage.get(STORAGE_KEY, true);
+      if(res && res.value){
+        var parsed = JSON.parse(res.value);
+        state.fleet = parsed.fleet || [];
+        state.checkouts = parsed.checkouts || [];
+        state.maintenance = parsed.maintenance || [];
+      }
+      setSyncStatus("ok");
+    }catch(e){
+      // no data yet, or fetch failed — start fresh, don't block the UI
+      setSyncStatus("ok");
+    }
+  }
+
+  async function saveState(){
+    setSyncStatus("saving");
+    try{
+      var res = await window.storage.set(STORAGE_KEY, JSON.stringify(state), true);
+      if(!res) throw new Error("no result");
+      setSyncStatus("ok");
+    }catch(e){
+      setSyncStatus("err");
+    }
+  }
+
+  async function pollRefresh(){
+    if(modalOpen) return; // don't yank data out from under an open form
+    try{
+      var res = await window.storage.get(STORAGE_KEY, true);
+      if(res && res.value){
+        var incoming = res.value;
+        if(incoming !== JSON.stringify(state)){
+          var parsed = JSON.parse(incoming);
+          state.fleet = parsed.fleet || [];
+          state.checkouts = parsed.checkouts || [];
+          state.maintenance = parsed.maintenance || [];
+          renderCurrentTab();
+        }
+      }
+      setSyncStatus("ok");
+    }catch(e){ /* ignore transient poll errors */ }
+  }
+
+  // ---------------- derived data ----------------
+  function activeSessionFor(boatId){
+    for(var i=state.checkouts.length-1;i>=0;i--){
+      var c = state.checkouts[i];
+      if(c.boatId === boatId && !c.inAt) return c;
+    }
+    return null;
+  }
+  function openIssuesFor(boatId){
+    return state.maintenance.filter(function(m){ return m.boatId===boatId && !m.resolved; });
+  }
+  function boatById(id){
+    for(var i=0;i<state.fleet.length;i++) if(state.fleet[i].id===id) return state.fleet[i];
+    return null;
+  }
+
+  // ---------------- render dispatch ----------------
+  function renderCurrentTab(){
+    if(currentTab==="dock") renderDock();
+    else if(currentTab==="maintenance") renderMaintenance();
+    else renderUsage();
+    document.getElementById("fleet-fab").style.display = (currentTab==="dock" && state.fleet.length>0) ? "flex" : "none";
+  }
+
+  function switchTab(tab){
+    currentTab = tab;
+    document.querySelectorAll(".tab-btn").forEach(function(b){ b.classList.toggle("active", b.dataset.tab===tab); });
+    document.getElementById("view-dock").classList.toggle("active", tab==="dock");
+    document.getElementById("view-maintenance").classList.toggle("active", tab==="maintenance");
+    document.getElementById("view-usage").classList.toggle("active", tab==="usage");
+    renderCurrentTab();
+  }
+
+  // ---------------- DOCK view ----------------
+  function renderDock(){
+    var el = document.getElementById("dock-content");
+    if(state.fleet.length===0){
+      el.innerHTML =
+        '<div class="empty">' +
+          '<h3>No boats on the board yet</h3>' +
+          '<p>Add your fleet to start tracking checkouts, usage, and maintenance.</p>' +
+          '<button class="btn primary-in" style="width:auto; padding:14px 26px;" id="empty-add-boat">Add your first boat</button>' +
+        '</div>';
+      document.getElementById("empty-add-boat").onclick = function(){ openManageFleet(true); };
+      document.getElementById("fleet-fab").style.display = "none";
+      return;
+    }
+    var html = '<div class="dock-grid">';
+    state.fleet.filter(function(b){ return !b.retired; }).forEach(function(b){
+      var session = activeSessionFor(b.id);
+      var issues = openIssuesFor(b.id);
+      var isOut = !!session;
+      var pct = 0, outLabel = "";
+      if(isOut){
+        var elapsedMs = Date.now() - new Date(session.outAt).getTime();
+        pct = Math.min(100, (elapsedMs / (120*60000)) * 100);
+        outLabel = fmtDuration(elapsedMs);
+      }
+      html +=
+        '<button class="boat-card" data-boat="'+b.id+'">' +
+          (issues.length ? '<span class="flagged-badge">FLAGGED</span>' : '') +
+          '<div class="cls">'+escapeHtml(b.cls||"—")+'</div>' +
+          '<h3>'+escapeHtml(b.name)+'</h3>' +
+          '<div class="status-row">' +
+            '<span class="status-dot '+(isOut?"out":"available")+'"></span>' +
+            '<span class="status-label '+(isOut?"out":"available")+'">'+(isOut?"ON THE WATER":"ON THE RACK")+'</span>' +
+            (isOut ? '<span class="status-sub">'+outLabel+'</span>' : '') +
+          '</div>' +
+          '<div class="waterline"><div class="fill" style="width:'+(isOut?pct:0)+'%"></div></div>' +
+        '</button>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+    el.querySelectorAll(".boat-card").forEach(function(card){
+      card.addEventListener("click", function(){ openBoatSheet(card.dataset.boat); });
+    });
+  }
+
+  // ---------------- ACTION SHEET ----------------
+  function openOverlay(html){
+    document.getElementById("sheet").innerHTML = html;
+    document.getElementById("overlay").classList.add("open");
+    modalOpen = true;
+  }
+  function closeOverlay(){
+    document.getElementById("overlay").classList.remove("open");
+    document.getElementById("sheet").innerHTML = "";
+    modalOpen = false;
+  }
+  document.getElementById("overlay").addEventListener("click", function(e){
+    if(e.target.id === "overlay") closeOverlay();
+  });
+
+  function openBoatSheet(boatId){
+    var b = boatById(boatId);
+    if(!b) return;
+    var session = activeSessionFor(boatId);
+    var issues = openIssuesFor(boatId);
+
+    if(issues.length && !session){
+      renderFlaggedSheet(b, issues);
+    } else if(session){
+      renderCheckInSheet(b, session);
+    } else {
+      renderCheckOutSheet(b);
+    }
+  }
+
+  function renderCheckOutSheet(b){
+    openOverlay(
+      '<div class="eyebrow">'+escapeHtml(b.cls||"")+'</div>' +
+      '<h2>Send '+escapeHtml(b.name)+' out?</h2>' +
+      '<p class="sub">Logs it on the board so the next coach knows it\'s on the water.</p>' +
+      '<button class="field-toggle-link" id="toggle-note">+ Add a crew note (optional)</button>' +
+      '<div class="field" id="note-field" style="display:none; margin-top:10px;">' +
+        '<label for="co-note">Crew / notes</label>' +
+        '<input type="text" id="co-note" placeholder="e.g. V8, morning lineup" />' +
+      '</div>' +
+      '<button class="btn primary-out" id="confirm-checkout">Check Out</button>' +
+      '<button class="btn ghost" id="cancel-sheet">Cancel</button>'
+    );
+    document.getElementById("toggle-note").onclick = function(){
+      document.getElementById("note-field").style.display = "block";
+      this.style.display = "none";
+    };
+    document.getElementById("cancel-sheet").onclick = closeOverlay;
+    document.getElementById("confirm-checkout").onclick = function(){
+      var note = document.getElementById("co-note").value.trim();
+      state.checkouts.push({ id: uid(), boatId: b.id, outAt: nowIso(), inAt: null, note: note });
+      closeOverlay();
+      saveState();
+      renderCurrentTab();
+      toast(b.name + " checked out");
+    };
+  }
+
+  function renderCheckInSheet(b, session){
+    var elapsed = fmtDuration(Date.now() - new Date(session.outAt).getTime());
+    openOverlay(
+      '<div class="eyebrow">'+escapeHtml(b.cls||"")+' · out '+elapsed+'</div>' +
+      '<h2>Check in '+escapeHtml(b.name)+'?</h2>' +
+      '<p class="sub">'+(session.note ? "Note: "+escapeHtml(session.note) : "Went out at "+fmtClockShort(new Date(session.outAt)))+'</p>' +
+      '<button class="btn primary-in" id="confirm-checkin-clean">No issues — Check In</button>' +
+      '<button class="btn ghost" id="show-issue-form">Report an issue</button>' +
+      '<div id="issue-form" style="display:none; margin-top:16px;">' +
+        '<div class="field"><label>What\'s wrong?</label><textarea id="issue-desc" rows="3" placeholder="e.g. cracked footstretcher, port oarlock loose"></textarea></div>' +
+        '<div class="field"><label>Severity</label>' +
+          '<div class="seg" id="severity-seg">' +
+            '<button type="button" data-val="minor" class="active">Minor</button>' +
+            '<button type="button" data-val="out-of-service">Out of service</button>' +
+          '</div>' +
+        '</div>' +
+        '<button class="btn primary-danger" id="confirm-checkin-flag">Check In &amp; Flag</button>' +
+      '</div>' +
+      '<button class="btn ghost" id="cancel-sheet" style="margin-top:10px;">Cancel</button>'
+    );
+    document.getElementById("cancel-sheet").onclick = closeOverlay;
+    document.getElementById("confirm-checkin-clean").onclick = function(){
+      session.inAt = nowIso();
+      closeOverlay(); saveState(); renderCurrentTab();
+      toast(b.name + " checked in");
+    };
+    document.getElementById("show-issue-form").onclick = function(){
+      document.getElementById("issue-form").style.display = "block";
+      this.style.display = "none";
+    };
+    var severity = "minor";
+    document.getElementById("severity-seg").querySelectorAll("button").forEach(function(btn){
+      btn.onclick = function(){
+        severity = this.dataset.val;
+        document.getElementById("severity-seg").querySelectorAll("button").forEach(function(x){ x.classList.remove("active"); });
+        this.classList.add("active");
+      };
+    });
+    document.getElementById("confirm-checkin-flag").onclick = function(){
+      var desc = document.getElementById("issue-desc").value.trim();
+      if(!desc){ toast("Add a quick description first"); return; }
+      session.inAt = nowIso();
+      state.maintenance.push({ id: uid(), boatId: b.id, date: nowIso(), description: desc, severity: severity, resolved: false, source: "checkin" });
+      closeOverlay(); saveState(); renderCurrentTab();
+      toast(b.name + " checked in and flagged");
+    };
+  }
+
+  function renderFlaggedSheet(b, issues){
+    var list = issues.map(function(i){
+      return '<div class="m-row"><span class="m-dot open"></span><div class="m-body">' +
+        '<div class="m-desc">'+escapeHtml(i.description)+'</div>' +
+        '<div class="m-meta">'+ (i.severity==="out-of-service" ? "OUT OF SERVICE · " : "MINOR · ") + new Date(i.date).toLocaleDateString() +'</div>' +
+      '</div></div>';
+    }).join("");
+    openOverlay(
+      '<div class="eyebrow">'+escapeHtml(b.cls||"")+' · flagged</div>' +
+      '<h2>'+escapeHtml(b.name)+'</h2>' +
+      '<p class="sub">This boat has open maintenance issues.</p>' +
+      list +
+      '<button class="btn primary-in" id="resolve-all">Mark Resolved</button>' +
+      '<button class="btn primary-out" id="send-anyway">Send Out Anyway</button>' +
+      '<button class="btn ghost" id="cancel-sheet">Cancel</button>'
+    );
+    document.getElementById("cancel-sheet").onclick = closeOverlay;
+    document.getElementById("resolve-all").onclick = function(){
+      issues.forEach(function(i){ i.resolved = true; i.resolvedAt = nowIso(); });
+      closeOverlay(); saveState(); renderCurrentTab();
+      toast(b.name + " marked resolved");
+    };
+    document.getElementById("send-anyway").onclick = function(){
+      closeOverlay();
+      renderCheckOutSheet(b);
+    };
+  }
+
+  // ---------------- MAINTENANCE view ----------------
+  function renderMaintenance(){
+    var el = document.getElementById("maintenance-content");
+    var open = state.maintenance.filter(function(m){ return !m.resolved; }).sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
+    var resolved = state.maintenance.filter(function(m){ return m.resolved; }).sort(function(a,b){ return new Date(b.resolvedAt||b.date)-new Date(a.resolvedAt||a.date); });
+
+    var html = '';
+    html += '<div class="m-section-title">Needs Attention ('+open.length+')</div>';
+    if(open.length===0){
+      html += '<div class="empty" style="padding:26px;"><p style="margin:0;">Nothing flagged. Fleet\'s clean.</p></div>';
+    } else {
+      open.forEach(function(m){
+        var b = boatById(m.boatId);
+        html += '<div class="m-row"><span class="m-dot open"></span><div class="m-body">' +
+          '<div class="m-boat">'+escapeHtml(b?b.name:"Unknown boat")+'</div>' +
+          '<div class="m-desc">'+escapeHtml(m.description)+'</div>' +
+          '<div class="m-meta">'+(m.severity==="out-of-service"?"OUT OF SERVICE":"MINOR")+' · '+new Date(m.date).toLocaleDateString()+'</div>' +
+          '</div><div class="m-action"><button class="m-btn-small" data-resolve="'+m.id+'">Mark Resolved</button></div></div>';
+      });
+    }
+
+    html += '<button class="collapse-toggle" id="toggle-history">'+(maintHistoryOpen? "Hide" : "Show")+' resolved history ('+resolved.length+')</button>';
+    if(maintHistoryOpen){
+      resolved.forEach(function(m){
+        var b = boatById(m.boatId);
+        html += '<div class="m-row"><span class="m-dot resolved"></span><div class="m-body">' +
+          '<div class="m-boat">'+escapeHtml(b?b.name:"Unknown boat")+'</div>' +
+          '<div class="m-desc">'+escapeHtml(m.description)+'</div>' +
+          '<div class="m-meta">Resolved '+ (m.resolvedAt ? new Date(m.resolvedAt).toLocaleDateString() : "") +'</div>' +
+          '</div></div>';
+      });
+    }
+    el.innerHTML = html;
+
+    document.getElementById("toggle-history").onclick = function(){
+      maintHistoryOpen = !maintHistoryOpen;
+      renderMaintenance();
+    };
+    el.querySelectorAll("[data-resolve]").forEach(function(btn){
+      btn.onclick = function(){
+        var m = state.maintenance.find(function(x){ return x.id===btn.dataset.resolve; });
+        if(m){ m.resolved = true; m.resolvedAt = nowIso(); saveState(); renderMaintenance(); toast("Marked resolved"); }
+      };
+    });
+
+    document.getElementById("fleet-fab").style.display = (state.fleet.length>0) ? "flex" : "none";
+  }
+
+  function openAddMaintenanceSheet(){
+    if(state.fleet.length===0){ toast("Add a boat first"); return; }
+    var options = state.fleet.filter(function(b){return !b.retired;}).map(function(b){ return '<option value="'+b.id+'">'+escapeHtml(b.name)+'</option>'; }).join("");
+    openOverlay(
+      '<div class="eyebrow">Manual entry</div>' +
+      '<h2>Log a maintenance note</h2>' +
+      '<div class="field"><label>Boat</label><select id="mn-boat">'+options+'</select></div>' +
+      '<div class="field"><label>What needs attention (or was done)?</label><textarea id="mn-desc" rows="3" placeholder="e.g. replaced bow ball, seat track needs grease"></textarea></div>' +
+      '<div class="field"><label>Severity</label>' +
+        '<div class="seg" id="mn-severity-seg">' +
+          '<button type="button" data-val="minor" class="active">Minor</button>' +
+          '<button type="button" data-val="out-of-service">Out of service</button>' +
+        '</div>' +
+      '</div>' +
+      '<button class="btn primary-danger" id="mn-save-open">Log as Open Issue</button>' +
+      '<button class="btn ghost" id="mn-save-resolved">Log as Already Resolved</button>' +
+      '<button class="btn ghost" id="cancel-sheet">Cancel</button>'
+    );
+    var mSeverity = "minor";
+    document.getElementById("mn-severity-seg").querySelectorAll("button").forEach(function(btn){
+      btn.onclick = function(){
+        mSeverity = this.dataset.val;
+        document.getElementById("mn-severity-seg").querySelectorAll("button").forEach(function(x){ x.classList.remove("active"); });
+        this.classList.add("active");
+      };
+    });
+    document.getElementById("cancel-sheet").onclick = closeOverlay;
+    function save(resolved){
+      var desc = document.getElementById("mn-desc").value.trim();
+      var boatId = document.getElementById("mn-boat").value;
+      if(!desc){ toast("Add a description first"); return; }
+      var entry = { id: uid(), boatId: boatId, date: nowIso(), description: desc, severity: mSeverity, resolved: resolved, source: "manual" };
+      if(resolved) entry.resolvedAt = nowIso();
+      state.maintenance.push(entry);
+      closeOverlay(); saveState(); renderMaintenance();
+      toast("Logged");
+    }
+    document.getElementById("mn-save-open").onclick = function(){ save(false); };
+    document.getElementById("mn-save-resolved").onclick = function(){ save(true); };
+  }
+
+  // ---------------- USAGE view ----------------
+  function rangeStart(range){
+    var d = new Date();
+    if(range==="7d") d.setDate(d.getDate()-7);
+    else if(range==="30d") d.setDate(d.getDate()-30);
+    else return null; // all time
+    return d;
+  }
+  function renderUsage(){
+    var el = document.getElementById("usage-content");
+    if(state.fleet.length===0){
+      el.innerHTML = '<div class="empty"><h3>No usage data yet</h3><p>Once boats start checking in and out, hours will show up here.</p></div>';
+      return;
+    }
+    var start = rangeStart(usageRange);
+    var perBoat = {};
+    state.fleet.forEach(function(b){ perBoat[b.id] = { boat: b, ms: 0, outings: 0, last: null }; });
+
+    state.checkouts.forEach(function(c){
+      var outAt = new Date(c.outAt);
+      if(start && outAt < start) return;
+      var endTime = c.inAt ? new Date(c.inAt) : new Date();
+      if(!perBoat[c.boatId]) return;
+      perBoat[c.boatId].ms += (endTime - outAt);
+      perBoat[c.boatId].outings += 1;
+      if(!perBoat[c.boatId].last || outAt > perBoat[c.boatId].last) perBoat[c.boatId].last = outAt;
+    });
+
+    var rows = Object.values(perBoat).filter(function(r){ return !r.boat.retired; })
+      .sort(function(a,b){ return b.ms - a.ms; });
+
+    var totalMs = rows.reduce(function(s,r){ return s + r.ms; }, 0);
+    var totalOutings = rows.reduce(function(s,r){ return s + r.outings; }, 0);
+    var currentlyOut = state.fleet.filter(function(b){ return activeSessionFor(b.id); }).length;
+    var maxMs = Math.max.apply(null, rows.map(function(r){ return r.ms; }).concat([1]));
+
+    var html = '<div class="range-seg">' +
+      '<button data-r="7d" class="'+(usageRange==="7d"?"active":"")+'">Last 7 days</button>' +
+      '<button data-r="30d" class="'+(usageRange==="30d"?"active":"")+'">Last 30 days</button>' +
+      '<button data-r="all" class="'+(usageRange==="all"?"active":"")+'">All time</button>' +
+    '</div>';
+
+    html += '<div class="stat-strip">' +
+      '<div class="stat-box"><div class="num">'+fmtDuration(totalMs)+'</div><div class="lbl">Fleet hours</div></div>' +
+      '<div class="stat-box"><div class="num">'+totalOutings+'</div><div class="lbl">Outings logged</div></div>' +
+      '<div class="stat-box"><div class="num">'+currentlyOut+'</div><div class="lbl">On the water now</div></div>' +
+    '</div>';
+
+    if(rows.every(function(r){ return r.outings===0; })){
+      html += '<div class="empty"><p style="margin:0;">No outings logged in this window yet.</p></div>';
+    } else {
+      rows.forEach(function(r){
+        if(r.outings===0 && usageRange!=="all") return;
+        html += '<div class="bar-row">' +
+          '<div class="bar-top"><span class="bname">'+escapeHtml(r.boat.name)+'</span><span class="bval">'+fmtDuration(r.ms)+' · '+r.outings+' outings</span></div>' +
+          '<div class="bar-track"><div class="bar-fill" style="width:'+ (r.ms/maxMs*100) +'%"></div></div>' +
+        '</div>';
+      });
+    }
+
+    el.innerHTML = html;
+    el.querySelectorAll(".range-seg button").forEach(function(btn){
+      btn.onclick = function(){ usageRange = this.dataset.r; renderUsage(); };
+    });
+  }
+
+  // ---------------- MANAGE FLEET ----------------
+  function openManageFleet(jumpToAdd){
+    manageFleetMode = true;
+    renderManageFleetSheet(jumpToAdd);
+  }
+  function renderManageFleetSheet(jumpToAdd){
+    var rows = state.fleet.map(function(b){
+      return '<div class="fleet-row">' +
+        '<div style="flex:1;"><div class="fname">'+escapeHtml(b.name)+(b.retired?' <span style="color:var(--slate); font-weight:400;">(retired)</span>':'')+'</div>' +
+        '<div class="fcls">'+escapeHtml(b.cls||"")+(b.notes?" · "+escapeHtml(b.notes):"")+'</div></div>' +
+        '<button class="m-btn-small" data-toggle-retire="'+b.id+'">'+(b.retired?"Restore":"Retire")+'</button>' +
+      '</div>';
+    }).join("");
+
+    openOverlay(
+      '<div class="eyebrow">Manage fleet</div>' +
+      '<h2>Boats</h2>' +
+      '<div id="fleet-list">'+(rows || '<p class="sub">No boats added yet.</p>')+'</div>' +
+      '<div class="divider-text">Add a boat</div>' +
+      '<div class="field"><label>Name</label><input type="text" id="nb-name" placeholder="e.g. Old Main" /></div>' +
+      '<div class="field"><label>Class / type</label><input type="text" id="nb-cls" placeholder="e.g. 8+, 4x, 2-" /></div>' +
+      '<div class="field"><label>Notes (optional)</label><input type="text" id="nb-notes" placeholder="rigging, hull material, bow number..." /></div>' +
+      '<button class="btn primary-in" id="nb-save">Add Boat</button>' +
+      '<button class="btn ghost" id="cancel-sheet">Done</button>'
+    );
+    document.getElementById("cancel-sheet").onclick = function(){ manageFleetMode = false; closeOverlay(); renderCurrentTab(); };
+    document.getElementById("fleet-list").querySelectorAll("[data-toggle-retire]").forEach(function(btn){
+      btn.onclick = function(){
+        var b = boatById(btn.dataset.toggleRetire);
+        if(b){ b.retired = !b.retired; saveState(); renderManageFleetSheet(false); }
+      };
+    });
+    document.getElementById("nb-save").onclick = function(){
+      var name = document.getElementById("nb-name").value.trim();
+      if(!name){ toast("Give the boat a name"); return; }
+      var cls = document.getElementById("nb-cls").value.trim();
+      var notes = document.getElementById("nb-notes").value.trim();
+      state.fleet.push({ id: uid(), name: name, cls: cls, notes: notes, retired: false });
+      saveState();
+      document.getElementById("nb-name").value = "";
+      document.getElementById("nb-cls").value = "";
+      document.getElementById("nb-notes").value = "";
+      renderManageFleetSheet(false);
+      toast(name + " added to the fleet");
+    };
+    if(jumpToAdd){ setTimeout(function(){ var f = document.getElementById("nb-name"); if(f) f.focus(); }, 50); }
+  }
+
+  // ---------------- header clock ----------------
+  function tickClock(){
+    var d = new Date();
+    document.getElementById("clock").textContent = fmtClock(d);
+    document.getElementById("date-line").textContent = fmtDateLine(d);
+  }
+
+  // ---------------- wiring ----------------
+  document.querySelectorAll(".tab-btn").forEach(function(btn){
+    btn.addEventListener("click", function(){ switchTab(btn.dataset.tab); });
+  });
+  document.getElementById("gear-btn").addEventListener("click", function(){ openManageFleet(false); });
+  document.getElementById("fleet-fab").addEventListener("click", function(){
+    if(currentTab==="maintenance") openAddMaintenanceSheet();
+    else openManageFleet(true);
+  });
+
+  // ---------------- init ----------------
+  async function init(){
+    tickClock();
+    setInterval(tickClock, 1000);
+    await loadState();
+    renderCurrentTab();
+    setInterval(function(){ if(currentTab==="dock" && !modalOpen) renderDock(); }, 15000);
+    setInterval(pollRefresh, 20000);
+  }
+  init();
+})();
+</script>
+</body>
+</html>
