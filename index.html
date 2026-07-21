@@ -154,9 +154,10 @@
 
   .field{ margin-bottom:14px; }
   .field label{ display:block; font-size:12px; color:var(--slate); margin-bottom:6px; font-weight:600; letter-spacing:.02em; }
-  .field input[type=text], .field textarea, .field select{
+  .field input[type=text], .field input[type=date], .field textarea, .field select{
     width:100%; background:var(--ink); border:1px solid var(--hairline); color:var(--foam);
     border-radius: var(--radius-sm); padding:12px 12px; font-size:15px; font-family:inherit; resize:vertical;
+    color-scheme: dark;
   }
   .field input:focus, .field textarea:focus, .field select:focus{ outline:2px solid var(--slate-dim); outline-offset:1px; }
   .field-toggle-link{ background:none; border:none; color:var(--slate); font-size:13px; cursor:pointer; padding:4px 0; text-decoration:underline; text-underline-offset:3px; }
@@ -353,6 +354,12 @@ if(!window.storage){
     var ap = h >= 12 ? "pm" : "am";
     h = h % 12; if(h===0) h = 12;
     return h + ":" + (m<10?"0":"")+m + ap;
+  }
+  function fmtDateShort(dstr){
+    if(!dstr) return "—";
+    var d = new Date(dstr + "T00:00:00");
+    if(isNaN(d)) return "—";
+    return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
   }
   function fmtDuration(ms){
     var mins = Math.max(0, Math.round(ms/60000));
@@ -802,7 +809,9 @@ if(!window.storage){
     var rows = state.fleet.map(function(b){
       return '<div class="fleet-row">' +
         '<div style="flex:1;"><div class="fname">'+escapeHtml(b.name)+(b.retired?' <span style="color:var(--slate); font-weight:400;">(retired)</span>':'')+'</div>' +
-        '<div class="fcls">'+escapeHtml(b.cls||"")+(b.notes?" · "+escapeHtml(b.notes):"")+'</div></div>' +
+        '<div class="fcls">'+escapeHtml(b.cls||"")+(b.notes?" · "+escapeHtml(b.notes):"")+'</div>' +
+        '<div class="fcls">HW refresh '+fmtDateShort(b.hwRefreshDate)+' · Waxed '+fmtDateShort(b.lastWaxDate)+'</div></div>' +
+        '<button class="m-btn-small" data-edit-boat="'+b.id+'">Edit</button>' +
         '<button class="m-btn-small" data-toggle-retire="'+b.id+'">'+(b.retired?"Restore":"Retire")+'</button>' +
       '</div>';
     }).join("");
@@ -815,6 +824,8 @@ if(!window.storage){
       '<div class="field"><label>Name</label><input type="text" id="nb-name" placeholder="e.g. Old Main" /></div>' +
       '<div class="field"><label>Class / type</label><input type="text" id="nb-cls" placeholder="e.g. 8+, 4x, 2-" /></div>' +
       '<div class="field"><label>Notes (optional)</label><input type="text" id="nb-notes" placeholder="rigging, hull material, bow number..." /></div>' +
+      '<div class="field"><label>Hardware refresh date (optional)</label><input type="date" id="nb-hw" /></div>' +
+      '<div class="field"><label>Last wax date (optional)</label><input type="date" id="nb-wax" /></div>' +
       '<button class="btn primary-in" id="nb-save">Add Boat</button>' +
       '<button class="btn ghost" id="cancel-sheet">Done</button>'
     );
@@ -825,20 +836,59 @@ if(!window.storage){
         if(b){ b.retired = !b.retired; saveState(); renderManageFleetSheet(false); }
       };
     });
+    document.getElementById("fleet-list").querySelectorAll("[data-edit-boat]").forEach(function(btn){
+      btn.onclick = function(){
+        var b = boatById(btn.dataset.editBoat);
+        if(b) renderEditBoatSheet(b);
+      };
+    });
     document.getElementById("nb-save").onclick = function(){
       var name = document.getElementById("nb-name").value.trim();
       if(!name){ toast("Give the boat a name"); return; }
       var cls = document.getElementById("nb-cls").value.trim();
       var notes = document.getElementById("nb-notes").value.trim();
-      state.fleet.push({ id: uid(), name: name, cls: cls, notes: notes, retired: false });
+      state.fleet.push({
+        id: uid(), name: name, cls: cls, notes: notes, retired: false,
+        hwRefreshDate: document.getElementById("nb-hw").value || "",
+        lastWaxDate: document.getElementById("nb-wax").value || ""
+      });
       saveState();
       document.getElementById("nb-name").value = "";
       document.getElementById("nb-cls").value = "";
       document.getElementById("nb-notes").value = "";
+      document.getElementById("nb-hw").value = "";
+      document.getElementById("nb-wax").value = "";
       renderManageFleetSheet(false);
       toast(name + " added to the fleet");
     };
     if(jumpToAdd){ setTimeout(function(){ var f = document.getElementById("nb-name"); if(f) f.focus(); }, 50); }
+  }
+
+  function renderEditBoatSheet(b){
+    openOverlay(
+      '<div class="eyebrow">Edit boat</div>' +
+      '<h2>'+escapeHtml(b.name)+'</h2>' +
+      '<div class="field"><label>Name</label><input type="text" id="eb-name" value="'+escapeHtml(b.name)+'" /></div>' +
+      '<div class="field"><label>Class / type</label><input type="text" id="eb-cls" value="'+escapeHtml(b.cls||"")+'" /></div>' +
+      '<div class="field"><label>Notes</label><input type="text" id="eb-notes" value="'+escapeHtml(b.notes||"")+'" /></div>' +
+      '<div class="field"><label>Hardware refresh date</label><input type="date" id="eb-hw" value="'+escapeHtml(b.hwRefreshDate||"")+'" /></div>' +
+      '<div class="field"><label>Last wax date</label><input type="date" id="eb-wax" value="'+escapeHtml(b.lastWaxDate||"")+'" /></div>' +
+      '<button class="btn primary-in" id="eb-save">Save</button>' +
+      '<button class="btn ghost" id="eb-back">Back</button>'
+    );
+    document.getElementById("eb-back").onclick = function(){ renderManageFleetSheet(false); };
+    document.getElementById("eb-save").onclick = function(){
+      var name = document.getElementById("eb-name").value.trim();
+      if(!name){ toast("Boat needs a name"); return; }
+      b.name = name;
+      b.cls = document.getElementById("eb-cls").value.trim();
+      b.notes = document.getElementById("eb-notes").value.trim();
+      b.hwRefreshDate = document.getElementById("eb-hw").value || "";
+      b.lastWaxDate = document.getElementById("eb-wax").value || "";
+      saveState();
+      renderManageFleetSheet(false);
+      toast(b.name + " updated");
+    };
   }
 
   // ---------------- header clock ----------------
