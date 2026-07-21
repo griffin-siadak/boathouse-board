@@ -747,7 +747,19 @@ if(!window.storage){
       '<p class="sub">'+(issues.length ? issues.length+' open issue'+(issues.length>1?'s':'')+' — see the list below the placards.' : 'No open issues.')+'</p>' +
       fields +
       '<button class="btn primary-in" id="cp-save">Save Checkpoints</button>' +
-      '<button class="btn ghost" id="cancel-sheet">Cancel</button>'
+      '<div class="divider-text">Something broken?</div>' +
+      '<button class="btn ghost" id="cp-show-issue">Report an Issue</button>' +
+      '<div id="cp-issue-form" style="display:none;">' +
+        '<div class="field"><label>What\'s wrong?</label><textarea id="cp-issue-desc" rows="3" placeholder="e.g. cracked footstretcher, port oarlock loose"></textarea></div>' +
+        '<div class="field"><label>Severity</label>' +
+          '<div class="seg" id="cp-severity-seg">' +
+            '<button type="button" data-val="minor" class="active">Minor</button>' +
+            '<button type="button" data-val="out-of-service">Out of service</button>' +
+          '</div>' +
+        '</div>' +
+        '<button class="btn primary-danger" id="cp-issue-save">Log Issue</button>' +
+      '</div>' +
+      '<button class="btn ghost" id="cancel-sheet" style="margin-top:10px;">Cancel</button>'
     );
     document.getElementById("cancel-sheet").onclick = closeOverlay;
     document.getElementById("cp-save").onclick = function(){
@@ -756,6 +768,26 @@ if(!window.storage){
       });
       closeOverlay(); saveState(); renderMaintenance();
       toast(b.name + " checkpoints updated");
+    };
+    document.getElementById("cp-show-issue").onclick = function(){
+      document.getElementById("cp-issue-form").style.display = "block";
+      this.style.display = "none";
+      document.getElementById("cp-issue-desc").focus();
+    };
+    var cpSeverity = "minor";
+    document.getElementById("cp-severity-seg").querySelectorAll("button").forEach(function(btn){
+      btn.onclick = function(){
+        cpSeverity = this.dataset.val;
+        document.getElementById("cp-severity-seg").querySelectorAll("button").forEach(function(x){ x.classList.remove("active"); });
+        this.classList.add("active");
+      };
+    });
+    document.getElementById("cp-issue-save").onclick = function(){
+      var desc = document.getElementById("cp-issue-desc").value.trim();
+      if(!desc){ toast("Add a quick description first"); return; }
+      state.maintenance.push({ id: uid(), boatId: b.id, date: nowIso(), description: desc, severity: cpSeverity, resolved: false, source: "placard" });
+      closeOverlay(); saveState(); renderMaintenance();
+      toast(b.name + " issue logged");
     };
   }
 
