@@ -309,11 +309,19 @@
 <div id="toast-container"></div>
 
 <script>
-// Local fallback: emulate the hosted window.storage API with localStorage
+// Storage adapter: same window.storage interface, backed by the SQLite server
 if(!window.storage){
   window.storage = {
-    get: async function(key){ var v = localStorage.getItem(key); return v==null ? null : { value: v }; },
-    set: async function(key, value){ localStorage.setItem(key, value); return { ok: true }; }
+    get: async function(){
+      var res = await fetch("/api/state");
+      if(!res.ok) throw new Error("fetch failed: " + res.status);
+      return { value: await res.text() };
+    },
+    set: async function(key, value){
+      var res = await fetch("/api/state", { method:"PUT", headers:{"Content-Type":"application/json"}, body: value });
+      if(!res.ok) throw new Error("save failed: " + res.status);
+      return { ok: true };
+    }
   };
 }
 (function(){
