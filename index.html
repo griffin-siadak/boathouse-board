@@ -206,6 +206,12 @@
     padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer;
   }
   .m-btn-small:hover{ color:var(--foam); border-color:var(--slate-dim); }
+  .cp-line{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:12px; color:var(--slate); margin-top:7px;
+  }
+  .cp-line .cp-val{ font-family:'IBM Plex Mono', monospace; color:var(--foam); }
+  .cp-line .cp-val.unset{ color:var(--slate-dim); }
   .collapse-toggle{ background:none; border:none; color:var(--slate); font-size:12px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; margin-bottom:8px; }
 
   .fab{
@@ -336,6 +342,13 @@ if(!window.storage){
   var manageFleetMode = false;
   var maintHistoryOpen = false;
   var usageRange = "7d"; // 7d, 30d, all
+
+  // Maintenance checkpoints: add future time/usage-based measures here and
+  // the placard + adjustment sheet pick them up automatically.
+  var CHECKPOINTS = [
+    { key: "hwRefreshDate", label: "Hardware refresh" },
+    { key: "lastWaxDate",   label: "Last wax" }
+  ];
 
   // ---------------- utils ----------------
   function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
@@ -652,6 +665,28 @@ if(!window.storage){
     var resolved = state.maintenance.filter(function(m){ return m.resolved; }).sort(function(a,b){ return new Date(b.resolvedAt||b.date)-new Date(a.resolvedAt||a.date); });
 
     var html = '';
+
+    var activeBoats = state.fleet.filter(function(b){ return !b.retired; });
+    if(activeBoats.length){
+      html += '<div class="m-section-title">Boat Checkpoints</div>';
+      html += '<div class="dock-grid" style="margin-bottom:10px;">';
+      activeBoats.forEach(function(b){
+        var issues = openIssuesFor(b.id);
+        var cpLines = CHECKPOINTS.map(function(cp){
+          var v = b[cp.key];
+          return '<div class="cp-line"><span>'+cp.label+'</span><span class="cp-val'+(v?'':' unset')+'">'+fmtDateShort(v)+'</span></div>';
+        }).join("");
+        html +=
+          '<button class="boat-card" data-cp-boat="'+b.id+'">' +
+            (issues.length ? '<span class="flagged-badge">FLAGGED</span>' : '') +
+            '<div class="cls">'+escapeHtml(b.cls||"—")+'</div>' +
+            '<h3>'+escapeHtml(b.name)+'</h3>' +
+            cpLines +
+          '</button>';
+      });
+      html += '</div>';
+    }
+
     html += '<div class="m-section-title">Needs Attention ('+open.length+')</div>';
     if(open.length===0){
       html += '<div class="empty" style="padding:26px;"><p style="margin:0;">Nothing flagged. Fleet\'s clean.</p></div>';
@@ -689,8 +724,37 @@ if(!window.storage){
         if(m){ m.resolved = true; m.resolvedAt = nowIso(); saveState(); renderMaintenance(); toast("Marked resolved"); }
       };
     });
+    el.querySelectorAll("[data-cp-boat]").forEach(function(card){
+      card.addEventListener("click", function(){ openCheckpointSheet(card.dataset.cpBoat); });
+    });
 
     document.getElementById("fleet-fab").style.display = (state.fleet.length>0) ? "flex" : "none";
+  }
+
+  function openCheckpointSheet(boatId){
+    var b = boatById(boatId);
+    if(!b) return;
+    var issues = openIssuesFor(b.id);
+    var fields = CHECKPOINTS.map(function(cp){
+      return '<div class="field"><label>'+cp.label+'</label>' +
+        '<input type="date" id="cp-'+cp.key+'" value="'+escapeHtml(b[cp.key]||"")+'" /></div>';
+    }).join("");
+    openOverlay(
+      '<div class="eyebrow">'+escapeHtml(b.cls||"")+' · maintenance checkpoints</div>' +
+      '<h2>'+escapeHtml(b.name)+'</h2>' +
+      '<p class="sub">'+(issues.length ? issues.length+' open issue'+(issues.length>1?'s':'')+' — see the list below the placards.' : 'No open issues.')+'</p>' +
+      fields +
+      '<button class="btn primary-in" id="cp-save">Save Checkpoints</button>' +
+      '<button class="btn ghost" id="cancel-sheet">Cancel</button>'
+    );
+    document.getElementById("cancel-sheet").onclick = closeOverlay;
+    document.getElementById("cp-save").onclick = function(){
+      CHECKPOINTS.forEach(function(cp){
+        b[cp.key] = document.getElementById("cp-"+cp.key).value || "";
+      });
+      closeOverlay(); saveState(); renderMaintenance();
+      toast(b.name + " checkpoints updated");
+    };
   }
 
   function openAddMaintenanceSheet(){
@@ -809,8 +873,7 @@ if(!window.storage){
     var rows = state.fleet.map(function(b){
       return '<div class="fleet-row">' +
         '<div style="flex:1;"><div class="fname">'+escapeHtml(b.name)+(b.retired?' <span style="color:var(--slate); font-weight:400;">(retired)</span>':'')+'</div>' +
-        '<div class="fcls">'+escapeHtml(b.cls||"")+(b.notes?" · "+escapeHtml(b.notes):"")+'</div>' +
-        '<div class="fcls">HW refresh '+fmtDateShort(b.hwRefreshDate)+' · Waxed '+fmtDateShort(b.lastWaxDate)+'</div></div>' +
+        '<div class="fcls">'+escapeHtml(b.cls||"")+(b.notes?" · "+escapeHtml(b.notes):"")+'</div></div>' +
         '<button class="m-btn-small" data-edit-boat="'+b.id+'">Edit</button>' +
         '<button class="m-btn-small" data-toggle-retire="'+b.id+'">'+(b.retired?"Restore":"Retire")+'</button>' +
       '</div>';
@@ -824,8 +887,6 @@ if(!window.storage){
       '<div class="field"><label>Name</label><input type="text" id="nb-name" placeholder="e.g. Old Main" /></div>' +
       '<div class="field"><label>Class / type</label><input type="text" id="nb-cls" placeholder="e.g. 8+, 4x, 2-" /></div>' +
       '<div class="field"><label>Notes (optional)</label><input type="text" id="nb-notes" placeholder="rigging, hull material, bow number..." /></div>' +
-      '<div class="field"><label>Hardware refresh date (optional)</label><input type="date" id="nb-hw" /></div>' +
-      '<div class="field"><label>Last wax date (optional)</label><input type="date" id="nb-wax" /></div>' +
       '<button class="btn primary-in" id="nb-save">Add Boat</button>' +
       '<button class="btn ghost" id="cancel-sheet">Done</button>'
     );
@@ -849,15 +910,12 @@ if(!window.storage){
       var notes = document.getElementById("nb-notes").value.trim();
       state.fleet.push({
         id: uid(), name: name, cls: cls, notes: notes, retired: false,
-        hwRefreshDate: document.getElementById("nb-hw").value || "",
-        lastWaxDate: document.getElementById("nb-wax").value || ""
+        hwRefreshDate: "", lastWaxDate: ""
       });
       saveState();
       document.getElementById("nb-name").value = "";
       document.getElementById("nb-cls").value = "";
       document.getElementById("nb-notes").value = "";
-      document.getElementById("nb-hw").value = "";
-      document.getElementById("nb-wax").value = "";
       renderManageFleetSheet(false);
       toast(name + " added to the fleet");
     };
@@ -871,8 +929,7 @@ if(!window.storage){
       '<div class="field"><label>Name</label><input type="text" id="eb-name" value="'+escapeHtml(b.name)+'" /></div>' +
       '<div class="field"><label>Class / type</label><input type="text" id="eb-cls" value="'+escapeHtml(b.cls||"")+'" /></div>' +
       '<div class="field"><label>Notes</label><input type="text" id="eb-notes" value="'+escapeHtml(b.notes||"")+'" /></div>' +
-      '<div class="field"><label>Hardware refresh date</label><input type="date" id="eb-hw" value="'+escapeHtml(b.hwRefreshDate||"")+'" /></div>' +
-      '<div class="field"><label>Last wax date</label><input type="date" id="eb-wax" value="'+escapeHtml(b.lastWaxDate||"")+'" /></div>' +
+      '<p class="sub" style="margin-top:2px;">Maintenance checkpoints are managed from the Maintenance tab.</p>' +
       '<button class="btn primary-in" id="eb-save">Save</button>' +
       '<button class="btn ghost" id="eb-back">Back</button>'
     );
@@ -883,8 +940,6 @@ if(!window.storage){
       b.name = name;
       b.cls = document.getElementById("eb-cls").value.trim();
       b.notes = document.getElementById("eb-notes").value.trim();
-      b.hwRefreshDate = document.getElementById("eb-hw").value || "";
-      b.lastWaxDate = document.getElementById("eb-wax").value || "";
       saveState();
       renderManageFleetSheet(false);
       toast(b.name + " updated");
