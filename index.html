@@ -629,7 +629,7 @@ if(!window.storage){
       '<h2>Send '+escapeHtml(b.name)+' out?</h2>' +
       '<p class="sub">Logs it on the board so the next coach knows it\'s on the water.</p>' +
       '<div class="field">' +
-        '<label for="co-person">'+role.label+'</label>' +
+        '<label for="co-person">'+role.label+' (required)</label>' +
         '<input type="text" id="co-person" placeholder="Name" autocomplete="off" />' +
       '</div>' +
       '<button class="field-toggle-link" id="toggle-note">+ Add a crew note (optional)</button>' +
@@ -637,7 +637,7 @@ if(!window.storage){
         '<label for="co-note">Crew / notes</label>' +
         '<input type="text" id="co-note" placeholder="e.g. V8, morning lineup" />' +
       '</div>' +
-      '<button class="btn primary-out" id="confirm-checkout">Check Out</button>' +
+      '<button class="btn primary-out" id="confirm-checkout" disabled>Check Out</button>' +
       '<button class="btn ghost" id="cancel-sheet">Cancel</button>'
     );
     document.getElementById("toggle-note").onclick = function(){
@@ -645,11 +645,15 @@ if(!window.storage){
       this.style.display = "none";
     };
     document.getElementById("cancel-sheet").onclick = closeOverlay;
+    document.getElementById("co-person").addEventListener("input", function(){
+      document.getElementById("confirm-checkout").disabled = (this.value.trim() === "");
+    });
     document.getElementById("confirm-checkout").onclick = function(){
       var note = document.getElementById("co-note").value.trim();
       var person = document.getElementById("co-person").value.trim();
+      if(!person){ toast("Enter the "+role.label.toLowerCase()+"'s name first"); return; }
       state.checkouts.push({ id: uid(), boatId: b.id, outAt: nowIso(), inAt: null, note: note,
-        person: person, personRole: person ? role.key : "" });
+        person: person, personRole: role.key });
       closeOverlay();
       saveState();
       renderCurrentTab();
