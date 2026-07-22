@@ -257,6 +257,13 @@
     border-radius:999px; font-size:13px; cursor:pointer; font-weight:600;
   }
   .range-seg button.active{ background:var(--foam); color:var(--ink); border-color:var(--foam); }
+  .range-custom{ display:flex; gap:10px; align-items:center; margin:-8px 0 20px; flex-wrap:wrap; }
+  .range-custom label{ font-size:12px; color:var(--slate); font-weight:600; }
+  .range-custom input[type=date]{
+    background:var(--ink); border:1px solid var(--hairline); color:var(--foam);
+    border-radius: var(--radius-sm); padding:8px 10px; font-size:14px; font-family:inherit;
+    color-scheme: dark;
+  }
 
   .stat-strip{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; margin-bottom:24px; }
   .stat-box{ background:var(--panel); border:1px solid var(--hairline); border-radius: var(--radius-sm); padding:16px; }
@@ -387,7 +394,8 @@ if(!window.storage){
   var modalOpen = false;
   var manageFleetMode = false;
   var maintHistoryOpen = false;
-  var usageRange = "7d"; // 7d, 30d, all
+  var usageRange = "7d"; // 7d, 30d, all, custom
+  var customStart = null, customEnd = null; // YYYY-MM-DD, defaulted on first use
 
   // Maintenance checkpoints: add future time/usage-based measures here and
   // the placard + adjustment sheet pick them up automatically.
@@ -446,6 +454,7 @@ if(!window.storage){
     h = h % 12; if(h===0) h = 12;
     return h + ":" + (m<10?"0":"")+m + ap;
   }
+  function pad2(n){ return (n<10?"0":"")+n; }
   function fmtDateShort(dstr){
     if(!dstr) return "—";
     var d = new Date(dstr + "T00:00:00");
@@ -996,6 +1005,24 @@ if(!window.storage){
   function usageBuckets(){
     var today = new Date(); today.setHours(0,0,0,0);
     var buckets = [], i, s;
+    if(usageRange === "custom"){
+      // default: last 14 days
+      if(!customEnd){ customEnd = today.getFullYear()+"-"+pad2(today.getMonth()+1)+"-"+pad2(today.getDate()); }
+      if(!customStart){
+        var d0 = new Date(today.getTime() - 13*MS_DAY);
+        customStart = d0.getFullYear()+"-"+pad2(d0.getMonth()+1)+"-"+pad2(d0.getDate());
+      }
+      var cs = new Date(customStart+"T00:00:00").getTime();
+      var ce = new Date(customEnd+"T00:00:00").getTime() + MS_DAY;
+      if(isNaN(cs) || isNaN(ce)){ cs = today.getTime()-13*MS_DAY; ce = today.getTime()+MS_DAY; }
+      if(cs >= ce) cs = ce - MS_DAY;
+      var days = Math.round((ce-cs)/MS_DAY);
+      var k = Math.max(1, Math.ceil(days/31)); // bucket size in days, ≤31 columns
+      for(s=cs; s<ce; s+=k*MS_DAY){
+        buckets.push({ start:s, end:Math.min(s+k*MS_DAY, ce), date:new Date(s) });
+      }
+      return buckets;
+    }
     if(usageRange === "all"){
       var firstOut = null;
       state.checkouts.forEach(function(c){
@@ -1031,10 +1058,12 @@ if(!window.storage){
       return;
     }
     var buckets = usageBuckets();
-    var isWeekly = usageRange==="all";
+    var spanDays = Math.max(1, Math.round((buckets[0].end - buckets[0].start)/MS_DAY));
+    var isDaily = spanDays === 1;
     var windowStart = buckets[0].start;
-    // intensity thresholds in minutes (weekly buckets aggregate more time)
-    var t1 = isWeekly ? 120 : 60, t2 = isWeekly ? 360 : 150;
+    var windowEnd = buckets[buckets.length-1].end;
+    // intensity thresholds in minutes (multi-day buckets aggregate more time)
+    var t1 = isDaily ? 60 : 120, t2 = isDaily ? 150 : 360;
 
     var rows = state.fleet.filter(function(b){ return !b.retired; }).map(function(b){
       var cells = buckets.map(function(){ return { ms:0, outings:0 }; });
@@ -1044,7 +1073,7 @@ if(!window.storage){
         everUsed = true;
         var t = new Date(c.outAt).getTime();
         if(lastOut===null || t>lastOut) lastOut = t;
-        if(t < windowStart) return;
+        if(t < windowStart || t >= windowEnd) return;
         var dur = (c.inAt ? new Date(c.inAt).getTime() : Date.now()) - t;
         winMs += dur; winOutings++;
         for(var i=0;i<buckets.length;i++){
@@ -1063,7 +1092,14 @@ if(!window.storage){
       '<button data-r="7d" class="'+(usageRange==="7d"?"active":"")+'">Last 7 days</button>' +
       '<button data-r="30d" class="'+(usageRange==="30d"?"active":"")+'">Last 30 days</button>' +
       '<button data-r="all" class="'+(usageRange==="all"?"active":"")+'">All time</button>' +
+      '<button data-r="custom" class="'+(usageRange==="custom"?"active":"")+'">Custom</button>' +
     '</div>';
+    if(usageRange==="custom"){
+      html += '<div class="range-custom">' +
+        '<label for="cr-start">From</label><input type="date" id="cr-start" value="'+escapeHtml(customStart)+'" />' +
+        '<label for="cr-end">To</label><input type="date" id="cr-end" value="'+escapeHtml(customEnd)+'" />' +
+      '</div>';
+    }
 
     html += '<div class="stat-strip">' +
       '<div class="stat-box"><div class="num">'+fmtDuration(totalMs)+'</div><div class="lbl">Fleet hours</div></div>' +
@@ -1075,7 +1111,7 @@ if(!window.storage){
     var gridStyle = 'grid-template-columns:repeat('+buckets.length+',1fr);';
     var axis = buckets.map(function(bk,i){
       var d = bk.date, lbl = "";
-      if(isWeekly){ if(i%4===0) lbl = d.toLocaleDateString(undefined,{month:'short'}); }
+      if(!isDaily){ if(i%4===0) lbl = d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
       else if(buckets.length===7){ lbl = ["S","M","T","W","T","F","S"][d.getDay()]; }
       else { if(i%5===0) lbl = String(d.getDate()); }
       return '<span>'+lbl+'</span>';
@@ -1090,9 +1126,10 @@ if(!window.storage){
       var cellsHtml = r.cells.map(function(cell, i){
         var mins = cell.ms/60000;
         var lvl = cell.ms===0 ? '' : mins<t1 ? ' l1' : mins<t2 ? ' l2' : ' l3';
-        var when = isWeekly
-          ? 'Week of '+buckets[i].date.toLocaleDateString(undefined,{month:'short',day:'numeric'})
-          : buckets[i].date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+        var when = isDaily
+          ? buckets[i].date.toLocaleDateString(undefined,{month:'short',day:'numeric'})
+          : buckets[i].date.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' – ' +
+            new Date(buckets[i].end - MS_DAY).toLocaleDateString(undefined,{month:'short',day:'numeric'});
         var title = escapeHtml(r.boat.name)+' — '+when+': '+
           (cell.ms===0 ? 'no outings' : fmtDuration(cell.ms)+' · '+cell.outings+' outing'+(cell.outings>1?'s':''));
         return '<div class="hm-cell'+lvl+'" title="'+title+'"></div>';
@@ -1115,6 +1152,9 @@ if(!window.storage){
     el.querySelectorAll(".range-seg button").forEach(function(btn){
       btn.onclick = function(){ usageRange = this.dataset.r; renderUsage(); };
     });
+    var crs = document.getElementById("cr-start"), cre = document.getElementById("cr-end");
+    if(crs) crs.onchange = function(){ if(this.value) customStart = this.value; renderUsage(); };
+    if(cre) cre.onchange = function(){ if(this.value) customEnd = this.value; renderUsage(); };
   }
 
   // ---------------- MANAGE FLEET ----------------
