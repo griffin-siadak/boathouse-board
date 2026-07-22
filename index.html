@@ -212,6 +212,35 @@
   }
   .cp-line .cp-val{ font-family:'IBM Plex Mono', monospace; color:var(--foam); }
   .cp-line .cp-val.unset{ color:var(--slate-dim); }
+
+  /* ---------- inspection checklist ---------- */
+  .insp-step{
+    display:flex; align-items:flex-start; gap:12px; width:100%; text-align:left;
+    background:var(--ink); border:1px solid var(--hairline); border-radius:var(--radius-sm);
+    padding:12px 14px; margin-bottom:8px; cursor:pointer; color:var(--foam);
+    transition: border-color .12s;
+  }
+  .insp-step:hover{ border-color:var(--slate-dim); }
+  .insp-step .insp-box{
+    width:22px; height:22px; border-radius:6px; border:1.5px solid var(--slate-dim);
+    flex:none; display:flex; align-items:center; justify-content:center;
+    font-size:14px; font-weight:800; color:transparent; margin-top:1px;
+  }
+  .insp-step.done .insp-box{ background:var(--buoy); border-color:var(--buoy); color:#052014; }
+  .insp-step .insp-title{ font-weight:700; font-size:14px; }
+  .insp-step.done .insp-title{ color:var(--slate); }
+  .insp-step .insp-proc{ font-size:12.5px; color:var(--slate); margin-top:4px; line-height:1.5; }
+  .insp-progress{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--slate);
+    margin:12px 0 8px; text-align:center;
+  }
+  .btn:disabled{ opacity:.35; cursor:not-allowed; }
+  .btn:disabled:hover{ filter:none; }
+  .cp-form-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:var(--ink); border:1px solid var(--hairline); border-radius:var(--radius-sm);
+    padding:10px 12px;
+  }
   .collapse-toggle{ background:none; border:none; color:var(--slate); font-size:12px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; margin-bottom:8px; }
 
   .fab{
@@ -348,8 +377,38 @@ if(!window.storage){
   var CHECKPOINTS = [
     { key: "hwRefreshDate",            label: "Hardware refresh" },
     { key: "lastFullWashDate",         label: "Last full wash" },
-    { key: "lastInspectionDate",       label: "Last inspection" },
+    { key: "lastInspectionDate",       label: "Last inspection", form: "inspection" },
     { key: "lastMeasurementCheckDate", label: "Last measurement check" }
+  ];
+
+  // PMCS-style inspection. Cross-referenced from Filippi, Hudson, Vespoli,
+  // Pocock, and MaxRigging maintenance guidance — see docs/INSPECTION-SOURCES.md.
+  // Completing every step is what sets a boat's Last Inspection date.
+  var INSPECTION_FORM = [
+    { id: "hull",      item: "Hull exterior",
+      proc: "Wash with mild soap and water — no abrasives. Run a hand down the full length of the hull; look for cracks, soft spots, and deep scratches. Damage running ACROSS the hull (perpendicular to the keel) is the serious kind. Rinse and rack hull-up to drain." },
+    { id: "bowball",   item: "Bow ball & decks",
+      proc: "Confirm the bow ball is present, tightly mounted, and uncracked. Check bow and stern decks/canvas for punctures or delamination." },
+    { id: "hatches",   item: "Hatches, vents & compartments",
+      proc: "Open fore and aft hatches/vent plugs. Compartments must be dry — let condensation evaporate. Check seals for cracking. Close everything back up before the boat rows." },
+    { id: "finrudder", item: "Skeg / fin & rudder",
+      proc: "Fin straight, secure, undamaged — clean with a neutral product only. If steered: rudder swings freely with no play; work the cables and feel for binding. Inspect cable and sheath for fraying or rust; re-grease or replace." },
+    { id: "riggers",   item: "Riggers & pins",
+      proc: "Check every rigger bolt — top and backstay — for tightness. Look for corrosion or seized threads; remove, clean, and lightly lube any suspect bolt. Pins straight, pin nuts tight." },
+    { id: "oarlocks",  item: "Oarlocks & gates",
+      proc: "Open and close every gate; each must latch firmly. Look for cracks and worn bushings. Clean with a damp rag — do NOT lubricate; oil holds grit and speeds wear." },
+    { id: "tracks",    item: "Tracks / slides",
+      proc: "Wipe tracks with a wet rag until it comes away clean. Track mounting solid, edges free of burrs, wheels running centered in the track. No lubricant." },
+    { id: "seat",      item: "Seat & wheels",
+      proc: "Remove the seat. Spin each wheel: no flat spots, wobble, or grit; clean the axles. Ball-bearing seats get a few drops of light machine oil (quarterly). Worn wheels get replaced as a full set — never singly." },
+    { id: "stretcher", item: "Foot stretcher & shoes",
+      proc: "Stretcher mounting bolts tight — these loosen with use. Shoe screws tight, heel ties intact and correct length, shoes release cleanly. Clean and grease threads if adjustment is stiff." },
+    { id: "hardware",  item: "Full hardware sweep",
+      proc: "Bow to stern, every accessible nut, bolt, and wing nut: tight, uncorroded, not seized. Replace suspect fasteners. Where stainless meets aluminum, apply anti-corrosion compound." },
+    { id: "finish",    item: "Hull finish & wax",
+      proc: "Check for chalking, scum line, and oxidation. If the boat lives in sun or rows in dirty water, it should carry marine wax (1–2 coats a season); buff scum with fine rubbing compound." },
+    { id: "log",       item: "Log all defects found",
+      proc: "Anything failed or marginal above gets reported as an issue on this boat with a severity — an inspection only counts when the faults are written down." }
   ];
 
   // ---------------- utils ----------------
@@ -756,6 +815,13 @@ if(!window.storage){
     if(!b) return;
     var issues = openIssuesFor(b.id);
     var fields = CHECKPOINTS.map(function(cp){
+      if(cp.form === "inspection"){
+        return '<div class="field"><label>'+cp.label+' (set by completing the inspection)</label>' +
+          '<div class="cp-form-row">' +
+            '<span class="cp-val'+(b[cp.key]?'':' unset')+'" style="font-family:\'IBM Plex Mono\', monospace; font-size:14px;">'+fmtDateShort(b[cp.key])+'</span>' +
+            '<button type="button" class="m-btn-small" id="cp-run-inspection">Run Inspection</button>' +
+          '</div></div>';
+      }
       return '<div class="field"><label>'+cp.label+'</label>' +
         '<input type="date" id="cp-'+cp.key+'" value="'+escapeHtml(b[cp.key]||"")+'" /></div>';
     }).join("");
@@ -782,11 +848,14 @@ if(!window.storage){
     document.getElementById("cancel-sheet").onclick = closeOverlay;
     document.getElementById("cp-save").onclick = function(){
       CHECKPOINTS.forEach(function(cp){
+        if(cp.form) return; // form-gated checkpoints are set by their form, not by hand
         b[cp.key] = document.getElementById("cp-"+cp.key).value || "";
       });
       closeOverlay(); saveState(); renderMaintenance();
       toast(b.name + " checkpoints updated");
     };
+    var runBtn = document.getElementById("cp-run-inspection");
+    if(runBtn) runBtn.onclick = function(){ openInspectionSheet(b); };
     document.getElementById("cp-show-issue").onclick = function(){
       document.getElementById("cp-issue-form").style.display = "block";
       this.style.display = "none";
@@ -806,6 +875,54 @@ if(!window.storage){
       state.maintenance.push({ id: uid(), boatId: b.id, date: nowIso(), description: desc, severity: cpSeverity, resolved: false, source: "placard" });
       closeOverlay(); saveState(); renderMaintenance();
       toast(b.name + " issue logged");
+    };
+  }
+
+  function openInspectionSheet(b){
+    var checked = {};
+    var steps = INSPECTION_FORM.map(function(s, i){
+      return '<button type="button" class="insp-step" data-step="'+s.id+'">' +
+        '<span class="insp-box">✓</span>' +
+        '<span><span class="insp-title">'+(i+1)+'. '+escapeHtml(s.item)+'</span>' +
+        '<div class="insp-proc">'+escapeHtml(s.proc)+'</div></span>' +
+      '</button>';
+    }).join("");
+    openOverlay(
+      '<div class="eyebrow">'+escapeHtml(b.cls||"")+' · inspection</div>' +
+      '<h2>Inspect '+escapeHtml(b.name)+'</h2>' +
+      '<p class="sub">Work bow to stern. Tap each item once it\'s done — all '+INSPECTION_FORM.length+' are required to log the inspection.</p>' +
+      steps +
+      '<div class="insp-progress" id="insp-progress">0 / '+INSPECTION_FORM.length+' complete</div>' +
+      '<button class="btn primary-in" id="insp-complete" disabled>Complete Inspection</button>' +
+      '<button class="btn ghost" id="cancel-sheet">Cancel</button>'
+    );
+    document.getElementById("cancel-sheet").onclick = closeOverlay;
+    function refresh(){
+      var n = Object.keys(checked).length;
+      document.getElementById("insp-progress").textContent = n + " / " + INSPECTION_FORM.length + " complete";
+      document.getElementById("insp-complete").disabled = (n !== INSPECTION_FORM.length);
+    }
+    document.querySelectorAll(".insp-step").forEach(function(el){
+      el.onclick = function(){
+        var id = el.dataset.step;
+        if(checked[id]){ delete checked[id]; el.classList.remove("done"); }
+        else { checked[id] = true; el.classList.add("done"); }
+        refresh();
+      };
+    });
+    document.getElementById("insp-complete").onclick = function(){
+      if(Object.keys(checked).length !== INSPECTION_FORM.length) return;
+      var d = new Date();
+      var pad = function(n){ return (n<10?"0":"")+n; };
+      b.lastInspectionDate = d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+      // audit trail: log the completed inspection in resolved history
+      state.maintenance.push({
+        id: uid(), boatId: b.id, date: nowIso(),
+        description: "Inspection completed — all "+INSPECTION_FORM.length+" checks passed",
+        severity: "minor", resolved: true, resolvedAt: nowIso(), source: "inspection"
+      });
+      closeOverlay(); saveState(); renderMaintenance();
+      toast(b.name + " inspection logged");
     };
   }
 
