@@ -263,12 +263,29 @@
   .stat-box .num{ font-family:'Big Shoulders Display'; font-size:32px; font-weight:800; }
   .stat-box .lbl{ font-size:11px; color:var(--slate); text-transform:uppercase; letter-spacing:.06em; margin-top:2px; }
 
-  .bar-row{ margin-bottom:14px; }
-  .bar-row .bar-top{ display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px; }
-  .bar-row .bar-top .bname{ font-weight:700; }
-  .bar-row .bar-top .bval{ font-family:'IBM Plex Mono'; color:var(--slate); }
-  .bar-track{ height:10px; background:var(--panel); border-radius:6px; overflow:hidden; border:1px solid var(--hairline); }
-  .bar-fill{ height:100%; background: linear-gradient(90deg, var(--buoy), var(--flag)); border-radius:6px; transition: width .4s ease; }
+  /* usage heatmap — sequential ramp of --buoy over the ink surface */
+  .hm-head{ display:grid; gap:2px; margin-bottom:6px; }
+  .hm-head span{ font-size:9.5px; color:var(--slate-dim); text-align:center; font-family:'IBM Plex Mono', monospace; overflow:hidden; }
+  .hm-row{ margin-bottom:18px; }
+  .hm-top{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:6px; flex-wrap:wrap; }
+  .hm-name{ font-weight:700; font-size:14px; }
+  .hm-row.idle .hm-name{ color:var(--slate); }
+  .hm-meta{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--slate); margin-left:auto; }
+  .hm-cells{ display:grid; gap:2px; }
+  .hm-cell{ height:16px; border-radius:3px; background:var(--panel); }
+  .hm-cell.l1{ background:#1E443C; }
+  .hm-cell.l2{ background:#31755C; }
+  .hm-cell.l3{ background:var(--buoy); }
+  .idle-chip{
+    font-size:9.5px; font-weight:700; letter-spacing:.08em; padding:2px 7px; border-radius:5px; flex:none;
+  }
+  .idle-chip.idle{ background:var(--flag-dim); color:var(--flag); }
+  .idle-chip.never{ background:var(--signal-dim); color:var(--signal); }
+  .hm-legend{
+    display:flex; align-items:center; gap:4px; justify-content:flex-end;
+    margin-top:2px; color:var(--slate-dim); font-size:10.5px;
+  }
+  .hm-legend .hm-cell{ width:16px; flex:none; }
 
   /* ---------- manage fleet ---------- */
   .fleet-row{ display:flex; align-items:center; gap:12px; padding:12px 14px; background:var(--panel); border:1px solid var(--hairline); border-radius:var(--radius-sm); margin-bottom:8px; }
@@ -972,12 +989,40 @@ if(!window.storage){
   }
 
   // ---------------- USAGE view ----------------
-  function rangeStart(range){
-    var d = new Date();
-    if(range==="7d") d.setDate(d.getDate()-7);
-    else if(range==="30d") d.setDate(d.getDate()-30);
-    else return null; // all time
-    return d;
+  // Heatmap: boats × time buckets, cell intensity = time on the water.
+  // Every active boat is always shown — a row of empty cells IS the signal
+  // that a boat is going unused.
+  var MS_DAY = 86400000;
+  function usageBuckets(){
+    var today = new Date(); today.setHours(0,0,0,0);
+    var buckets = [], i, s;
+    if(usageRange === "all"){
+      var firstOut = null;
+      state.checkouts.forEach(function(c){
+        var t = new Date(c.outAt).getTime();
+        if(firstOut===null || t<firstOut) firstOut = t;
+      });
+      var weeks = firstOut===null ? 12 : Math.ceil((Date.now()-firstOut)/(7*MS_DAY)) + 1;
+      weeks = Math.max(4, Math.min(26, weeks));
+      var weekStart = today.getTime() - today.getDay()*MS_DAY; // start of this week
+      for(i=weeks-1;i>=0;i--){
+        s = weekStart - i*7*MS_DAY;
+        buckets.push({ start:s, end:s+7*MS_DAY, date:new Date(s) });
+      }
+    } else {
+      var n = usageRange==="7d" ? 7 : 30;
+      for(i=n-1;i>=0;i--){
+        s = today.getTime() - i*MS_DAY;
+        buckets.push({ start:s, end:s+MS_DAY, date:new Date(s) });
+      }
+    }
+    return buckets;
+  }
+  function relDays(t){
+    var d = Math.floor((Date.now()-t)/MS_DAY);
+    if(d<=0) return "today";
+    if(d===1) return "1d ago";
+    return d+"d ago";
   }
   function renderUsage(){
     var el = document.getElementById("usage-content");
@@ -985,27 +1030,34 @@ if(!window.storage){
       el.innerHTML = '<div class="empty"><h3>No usage data yet</h3><p>Once boats start checking in and out, hours will show up here.</p></div>';
       return;
     }
-    var start = rangeStart(usageRange);
-    var perBoat = {};
-    state.fleet.forEach(function(b){ perBoat[b.id] = { boat: b, ms: 0, outings: 0, last: null }; });
+    var buckets = usageBuckets();
+    var isWeekly = usageRange==="all";
+    var windowStart = buckets[0].start;
+    // intensity thresholds in minutes (weekly buckets aggregate more time)
+    var t1 = isWeekly ? 120 : 60, t2 = isWeekly ? 360 : 150;
 
-    state.checkouts.forEach(function(c){
-      var outAt = new Date(c.outAt);
-      if(start && outAt < start) return;
-      var endTime = c.inAt ? new Date(c.inAt) : new Date();
-      if(!perBoat[c.boatId]) return;
-      perBoat[c.boatId].ms += (endTime - outAt);
-      perBoat[c.boatId].outings += 1;
-      if(!perBoat[c.boatId].last || outAt > perBoat[c.boatId].last) perBoat[c.boatId].last = outAt;
-    });
-
-    var rows = Object.values(perBoat).filter(function(r){ return !r.boat.retired; })
-      .sort(function(a,b){ return b.ms - a.ms; });
+    var rows = state.fleet.filter(function(b){ return !b.retired; }).map(function(b){
+      var cells = buckets.map(function(){ return { ms:0, outings:0 }; });
+      var winMs = 0, winOutings = 0, lastOut = null, everUsed = false;
+      state.checkouts.forEach(function(c){
+        if(c.boatId !== b.id) return;
+        everUsed = true;
+        var t = new Date(c.outAt).getTime();
+        if(lastOut===null || t>lastOut) lastOut = t;
+        if(t < windowStart) return;
+        var dur = (c.inAt ? new Date(c.inAt).getTime() : Date.now()) - t;
+        winMs += dur; winOutings++;
+        for(var i=0;i<buckets.length;i++){
+          if(t>=buckets[i].start && t<buckets[i].end){ cells[i].ms += dur; cells[i].outings++; break; }
+        }
+      });
+      return { boat:b, cells:cells, ms:winMs, outings:winOutings, lastOut:lastOut, everUsed:everUsed };
+    }).sort(function(a,b){ return b.ms - a.ms || a.boat.name.localeCompare(b.boat.name); });
 
     var totalMs = rows.reduce(function(s,r){ return s + r.ms; }, 0);
     var totalOutings = rows.reduce(function(s,r){ return s + r.outings; }, 0);
     var currentlyOut = state.fleet.filter(function(b){ return activeSessionFor(b.id); }).length;
-    var maxMs = Math.max.apply(null, rows.map(function(r){ return r.ms; }).concat([1]));
+    var idleCount = rows.filter(function(r){ return r.outings===0; }).length;
 
     var html = '<div class="range-seg">' +
       '<button data-r="7d" class="'+(usageRange==="7d"?"active":"")+'">Last 7 days</button>' +
@@ -1017,19 +1069,47 @@ if(!window.storage){
       '<div class="stat-box"><div class="num">'+fmtDuration(totalMs)+'</div><div class="lbl">Fleet hours</div></div>' +
       '<div class="stat-box"><div class="num">'+totalOutings+'</div><div class="lbl">Outings logged</div></div>' +
       '<div class="stat-box"><div class="num">'+currentlyOut+'</div><div class="lbl">On the water now</div></div>' +
+      '<div class="stat-box"><div class="num">'+idleCount+'</div><div class="lbl">Idle boats</div></div>' +
     '</div>';
 
-    if(rows.every(function(r){ return r.outings===0; })){
-      html += '<div class="empty"><p style="margin:0;">No outings logged in this window yet.</p></div>';
-    } else {
-      rows.forEach(function(r){
-        if(r.outings===0 && usageRange!=="all") return;
-        html += '<div class="bar-row">' +
-          '<div class="bar-top"><span class="bname">'+escapeHtml(r.boat.name)+'</span><span class="bval">'+fmtDuration(r.ms)+' · '+r.outings+' outings</span></div>' +
-          '<div class="bar-track"><div class="bar-fill" style="width:'+ (r.ms/maxMs*100) +'%"></div></div>' +
-        '</div>';
-      });
-    }
+    var gridStyle = 'grid-template-columns:repeat('+buckets.length+',1fr);';
+    var axis = buckets.map(function(bk,i){
+      var d = bk.date, lbl = "";
+      if(isWeekly){ if(i%4===0) lbl = d.toLocaleDateString(undefined,{month:'short'}); }
+      else if(buckets.length===7){ lbl = ["S","M","T","W","T","F","S"][d.getDay()]; }
+      else { if(i%5===0) lbl = String(d.getDate()); }
+      return '<span>'+lbl+'</span>';
+    }).join("");
+    html += '<div class="hm-head" style="'+gridStyle+'">'+axis+'</div>';
+
+    rows.forEach(function(r){
+      var chip = "";
+      if(!r.everUsed) chip = '<span class="idle-chip never">NEVER USED</span>';
+      else if(r.outings===0) chip = '<span class="idle-chip idle">IDLE</span>';
+      var lastTxt = r.lastOut ? 'last out '+relDays(r.lastOut) : 'no outings recorded';
+      var cellsHtml = r.cells.map(function(cell, i){
+        var mins = cell.ms/60000;
+        var lvl = cell.ms===0 ? '' : mins<t1 ? ' l1' : mins<t2 ? ' l2' : ' l3';
+        var when = isWeekly
+          ? 'Week of '+buckets[i].date.toLocaleDateString(undefined,{month:'short',day:'numeric'})
+          : buckets[i].date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+        var title = escapeHtml(r.boat.name)+' — '+when+': '+
+          (cell.ms===0 ? 'no outings' : fmtDuration(cell.ms)+' · '+cell.outings+' outing'+(cell.outings>1?'s':''));
+        return '<div class="hm-cell'+lvl+'" title="'+title+'"></div>';
+      }).join("");
+      html += '<div class="hm-row'+(r.outings===0?' idle':'')+'">' +
+        '<div class="hm-top">' +
+          '<span class="hm-name">'+escapeHtml(r.boat.name)+' <span style="color:var(--slate-dim); font-weight:400; font-size:11px;">'+escapeHtml(r.boat.cls||"")+'</span></span>' +
+          '<span class="hm-meta">'+fmtDuration(r.ms)+' · '+r.outings+' outing'+(r.outings===1?'':'s')+' · '+lastTxt+'</span>' +
+          chip +
+        '</div>' +
+        '<div class="hm-cells" style="'+gridStyle+'">'+cellsHtml+'</div>' +
+      '</div>';
+    });
+
+    html += '<div class="hm-legend">Less' +
+      '<div class="hm-cell"></div><div class="hm-cell l1"></div><div class="hm-cell l2"></div><div class="hm-cell l3"></div>' +
+    'More</div>';
 
     el.innerHTML = html;
     el.querySelectorAll(".range-seg button").forEach(function(btn){
